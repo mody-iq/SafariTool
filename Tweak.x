@@ -3,7 +3,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  SafariTool - Step 9: File-based Diagnostic
+//  SafariTool - Step 9: File-based Diagnostic (Fixed)
 //  نسجّل كل شيء في ملف نصي قابل للقراءة مباشرةً.
 //  المسار: /var/mobile/Documents/SafariTool.log
 // ============================================================
@@ -42,24 +42,30 @@ static void SafariTool_ListRelevantClasses(void) {
     if (!classes) return;
 
     NSArray *keywords = @[@"Browser", @"TabDocument", @"Safari", @"WebViewController", @"PageViewController"];
-    NSMutableSet *found = [NSMutableSet set];
+    NSMutableArray *found = [NSMutableArray array];
+    NSMutableSet *seen = [NSMutableSet set];
 
     for (unsigned int i = 0; i < count; i++) {
         const char *name = class_getName(classes[i]);
         if (!name) continue;
         NSString *className = [NSString stringWithUTF8String:name];
 
+        if ([seen containsObject:className]) continue;
+
         for (NSString *keyword in keywords) {
             if ([className containsString:keyword]) {
                 [found addObject:className];
+                [seen addObject:className];
                 break;
             }
         }
     }
     free(classes);
 
-    SafariTool_Log(@"----- Relevant Classes Found (%lu) -----", (unsigned long)found.count);
-    for (NSString *name in [found sortedArrayUsingSelector:@selector(compare:)]) {
+    NSArray *sortedNames = [found sortedArrayUsingSelector:@selector(compare:)];
+
+    SafariTool_Log(@"----- Relevant Classes Found (%lu) -----", (unsigned long)sortedNames.count);
+    for (NSString *name in sortedNames) {
         SafariTool_Log(@"CLASS: %@", name);
     }
     SafariTool_Log(@"----- End of class list -----");
