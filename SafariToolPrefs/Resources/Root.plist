@@ -8,37 +8,59 @@
             <key>cell</key>
             <string>PSGroupCell</string>
             <key>label</key>
-            <string>الإعدادات الرئيسية</string>
+            <string>التحكم العام</string>
+            <key>footerText</key>
+            <string>بعد تغيير أي مفتاح، أغلق Safari تماماً ثم افتحه من جديد لتطبيق التغيير.</string>
         </dict>
         <dict>
             <key>cell</key>
             <string>PSSwitchCell</string>
+            <key>label</key>
+            <string>تفعيل الأداة</string>
+            <key>key</key>
+            <string>SafariTool_Enabled</string>
             <key>default</key>
             <true/>
             <key>defaults</key>
-            <string>com.mody.safarittool</string>
-            <key>key</key>
-            <string>Enabled</string>
-            <key>label</key>
-            <string>تفعيل SafariTool</string>
+            <string>kCFPreferencesAnyApplication</string>
         </dict>
         <dict>
             <key>cell</key>
             <string>PSGroupCell</string>
             <key>label</key>
-            <string>زر التنزيل</string>
+            <string>الميزات</string>
+            <key>footerText</key>
+            <string>يكسر منع تحديد النص ونسخه وقائمة الضغط المطول في المواقع التي تحظرها.</string>
         </dict>
         <dict>
             <key>cell</key>
             <string>PSSwitchCell</string>
+            <key>label</key>
+            <string>تحديد ونسخ النص بالقوة</string>
+            <key>key</key>
+            <string>SafariTool_ForceCopy</string>
             <key>default</key>
             <true/>
             <key>defaults</key>
-            <string>com.mody.safarittool</string>
-            <key>key</key>
-            <string>DownloadButtonEnabled</string>
+            <string>kCFPreferencesAnyApplication</string>
+        </dict>
+        <dict>
+            <key>cell</key>
+            <string>PSGroupCell</string>
+            <key>footerText</key>
+            <string>عند تشغيله تُعرض جميع المواقع بنسخة سطح المكتب. أطفئه متى شئت ليعود Safari لعرضه المعتاد.</string>
+        </dict>
+        <dict>
+            <key>cell</key>
+            <string>PSSwitchCell</string>
             <key>label</key>
-            <string>إظهار زر التنزيل</string>
+            <string>تشغيل وضع سطح المكتب</string>
+            <key>key</key>
+            <string>SafariTool_Desktop</string>
+            <key>default</key>
+            <false/>
+            <key>defaults</key>
+            <string>kCFPreferencesAnyApplication</string>
         </dict>
     </array>
     <key>title</key>
