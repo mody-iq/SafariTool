@@ -1,11 +1,7 @@
 {
     Filter = {
         Bundles = (
-            "com.apple.mobilesafari"
+            "com.apple.springboard"
         );
-        Executables = (
-            "MobileSafari"
-        );
-        Mode = "Any";
     };
 }
