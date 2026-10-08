@@ -2,7 +2,7 @@
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.3.1";
+static NSString *const kSTGuardVersion = @"0.3.2";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -196,34 +196,34 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"window.__stVideoDetector=true;"];
         [s appendString:@"var btn=null;var lastUrl=null;"];
         [s appendString:@"function showButton(url){"];
-        [s appendString:@"  if(btn&&lastUrl===url){return;}"];
-        [s appendString:@"  if(btn){btn.remove();btn=null;}"];
-        [s appendString:@"  lastUrl=url;"];
-        [s appendString:@"  btn=document.createElement('div');"];
-        [s appendString:@"  btn.id='st-dl-btn';"];
-        [s appendString:@"  btn.style.cssText='position:fixed;bottom:100px;right:20px;z-index:2147483647;background:#007AFF;color:#fff;padding:12px 20px;border-radius:25px;font-size:16px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.3);cursor:pointer;font-family:-apple-system;';"];
-        [s appendString:@"  btn.textContent='Download Video';"];
-        [s appendString:@"  btn.onclick=function(){try{window.webkit.messageHandlers.stDownload.postMessage({url:lastUrl});}catch(e){}};"];
-        [s appendString:@"  document.body.appendChild(btn);"];
+        [s appendString:@"if(btn&&lastUrl===url){return;}"];
+        [s appendString:@"if(btn){btn.remove();btn=null;}"];
+        [s appendString:@"lastUrl=url;"];
+        [s appendString:@"btn=document.createElement('div');"];
+        [s appendString:@"btn.id='st-dl-btn';"];
+        [s appendString:@"btn.style.cssText='position:fixed;bottom:100px;right:20px;z-index:2147483647;background:#007AFF;color:#fff;padding:12px 20px;border-radius:25px;font-size:16px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.3);cursor:pointer;font-family:-apple-system;';"];
+        [s appendString:@"btn.textContent='Download Video';"];
+        [s appendString:@"btn.onclick=function(){try{window.webkit.messageHandlers.stDownload.postMessage({url:lastUrl});}catch(e){}};"];
+        [s appendString:@"document.body.appendChild(btn);"];
         [s appendString:@"}"];
         [s appendString:@"function hideButton(){if(btn){btn.remove();btn=null;}lastUrl=null;}"];
         [s appendString:@"function scan(){"];
-        [s appendString:@"  try{"];
-        [s appendString:@"    var videos=document.querySelectorAll('video');"];
-        [s appendString:@"    if(videos.length===0){hideButton();return;}"];
-        [s appendString:@"    var found=null;"];
-        [s appendString:@"    for(var i=0;i<videos.length;i++){"];
-        [s appendString:@"      var v=videos[i];"];
-        [s appendString:@"      if(v.currentSrc){found=v.currentSrc;break;}"];
-        [s appendString:@"      if(v.src){found=v.src;break;}"];
-        [s appendString:@"      var srcs=v.querySelectorAll('source');"];
-        [s appendString:@"      for(var j=0;j<srcs.length;j++){"];
-        [s appendString:@"        if(srcs[j].src){found=srcs[j].src;break;}"];
-        [s appendString:@"      }"];
-        [s appendString:@"      if(found)break;"];
-        [s appendString:@"    }"];
-        [s appendString:@"    if(found){showButton(found);}else{hideButton();}"];
-        [s appendString:@"  }catch(e){}"];
+        [s appendString:@"try{"];
+        [s appendString:@"var videos=document.querySelectorAll('video');"];
+        [s appendString:@"if(videos.length===0){hideButton();return;}"];
+        [s appendString:@"var found=null;"];
+        [s appendString:@"for(var i=0;i<videos.length;i++){"];
+        [s appendString:@"var v=videos[i];"];
+        [s appendString:@"if(v.currentSrc){found=v.currentSrc;break;}"];
+        [s appendString:@"if(v.src){found=v.src;break;}"];
+        [s appendString:@"var srcs=v.querySelectorAll('source');"];
+        [s appendString:@"for(var j=0;j<srcs.length;j++){"];
+        [s appendString:@"if(srcs[j].src){found=srcs[j].src;break;}"];
+        [s appendString:@"}"];
+        [s appendString:@"if(found)break;"];
+        [s appendString:@"}"];
+        [s appendString:@"if(found){showButton(found);}else{hideButton();}"];
+        [s appendString:@"}catch(e){}"];
         [s appendString:@"}"];
         [s appendString:@"setInterval(scan,1500);"];
         [s appendString:@"scan();"];
@@ -313,7 +313,7 @@ static void ST_InstallScripts(WKWebView *wv) {
 
 %hook WKWebView
 
-- (id)initWithFrame:(CGRect)frame configuration:(WKWebViewConfigurationpring *)configuration {
+- (id)initWithFrame:(CGRect)frame configuration:(id)configuration {
     id r = %orig;
     if (r) {
         ST_InstallScripts((WKWebView *)r);
