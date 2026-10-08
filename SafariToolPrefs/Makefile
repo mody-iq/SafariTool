@@ -7,6 +7,7 @@ SafariToolPrefs_INSTALL_PATH = /Library/PreferenceBundles
 SafariToolPrefs_FRAMEWORKS = UIKit
 SafariToolPrefs_PRIVATE_FRAMEWORKS = Preferences
 SafariToolPrefs_CFLAGS = -fobjc-arc
+SafariToolPrefs_LDFLAGS = -F$(THEOS)/sdks/iPhoneOS16.5.sdk/System/Library/PrivateFrameworks
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
