@@ -3,12 +3,22 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  SafariTool - Step 9: File-based Diagnostic (Fixed)
-//  نسجّل كل شيء في ملف نصي قابل للقراءة مباشرةً.
-//  المسار: /var/mobile/Documents/SafariTool.log
+//  SafariTool - Step 10: Multi-path Diagnostic
+//  نسجّل في عدة مسارات لضمان إيجاد الملف.
 // ============================================================
 
-static NSString *const kSafariToolLogPath = @"/var/mobile/Documents/SafariTool.log";
+__attribute__((unused))
+static NSArray<NSString *> *SafariTool_LogPaths(void) {
+    NSMutableArray *paths = [NSMutableArray array];
+    [paths addObject:@"/tmp/SafariTool.log"];
+    [paths addObject:[NSTemporaryDirectory() stringByAppendingPathComponent:@"SafariTool.log"]];
+    NSString *home = NSHomeDirectory();
+    if (home) {
+        [paths addObject:[home stringByAppendingPathComponent:@"Documents/SafariTool.log"]];
+    }
+    [paths addObject:@"/var/mobile/Library/Logs/SafariTool.log"];
+    return paths;
+}
 
 __attribute__((unused))
 static void SafariTool_Log(NSString *format, ...) {
@@ -18,23 +28,33 @@ static void SafariTool_Log(NSString *format, ...) {
     va_end(args);
 
     NSString *line = [NSString stringWithFormat:@"%@\n", message];
+    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
 
-    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:kSafariToolLogPath];
-    if (fh) {
-        [fh seekToEndOfFile];
-        [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-        [fh closeFile];
-    } else {
-        [line writeToFile:kSafariToolLogPath
-               atomically:YES
-                 encoding:NSUTF8StringEncoding
-                    error:nil];
+    for (NSString *path in SafariTool_LogPaths()) {
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSString *dir = [path stringByDeletingLastPathComponent];
+        if (![fm fileExistsAtPath:dir]) {
+            [fm createDirectoryAtPath:dir
+          withIntermediateDirectories:YES
+                           attributes:nil
+                                error:nil];
+        }
+
+        if (![fm fileExistsAtPath:path]) {
+            [fm createFileAtPath:path contents:nil attributes:nil];
+        }
+
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (fh) {
+            [fh seekToEndOfFile];
+            [fh writeData:data];
+            [fh closeFile];
+        }
     }
 
     NSLog(@"[SafariTool] %@", message);
 }
 
-// سرد كل الكلاسات التي تحتوي على كلمات مفتاحية مفيدة
 __attribute__((unused))
 static void SafariTool_ListRelevantClasses(void) {
     unsigned int count = 0;
@@ -78,6 +98,8 @@ static void SafariTool_ListRelevantClasses(void) {
     SafariTool_Log(@"Bundle ID: %@", [[NSBundle mainBundle] bundleIdentifier]);
     SafariTool_Log(@"PID: %d", [[NSProcessInfo processInfo] processIdentifier]);
     SafariTool_Log(@"iOS version: %@", [[UIDevice currentDevice] systemVersion]);
+    SafariTool_Log(@"Home directory: %@", NSHomeDirectory());
+    SafariTool_Log(@"Temp directory: %@", NSTemporaryDirectory());
     SafariTool_Log(@"-------------------------------------------------");
 
     SafariTool_Log(@"BrowserController exists: %d", objc_getClass("BrowserController") != NULL);
