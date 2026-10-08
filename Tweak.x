@@ -1,4 +1,4 @@
-#importFoundation/Foundation.h>
+#import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
 // ============================================================
@@ -38,12 +38,10 @@ static inline BOOL SafariTool_IsDownloadButtonEnabled(void) {
 - (void)viewDidLoad {
     %orig;
 
-    // إذا كانت الأداة معطّلة أو الزر معطّل → لا نفعل شيئاً
     if (!SafariTool_IsEnabled() || !SafariTool_IsDownloadButtonEnabled()) {
         return;
     }
 
-    // نتجنب إضافة الزر أكثر من مرة
     UIBarButtonItem *existing = self.navigationItem.rightBarButtonItem;
     if (existing && [existing.accessibilityIdentifier isEqualToString:@"SafariToolDownloadBtn"]) {
         return;
