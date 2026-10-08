@@ -2,11 +2,7 @@
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
 
-// ============================================================
-// SafariTool - Foundation + Download Button (v0.3.0)
-// ============================================================
-
-static NSString *const kSTGuardVersion = @"0.3.0";
+static NSString *const kSTGuardVersion = @"0.3.1";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -14,8 +10,6 @@ static char kSTInstalledKey;
 static char kSTMessageHandlerKey;
 
 typedef void (^STDecisionHandler)(WKNavigationActionPolicy, WKWebpagePreferences *);
-
-// ---------- Preferences reading (sandbox-safe) ----------
 
 static id ST_GlobalVal(NSString *key) {
     CFPropertyListRef cf = CFPreferencesCopyAppValue((__bridge CFStringRef)key,
@@ -47,8 +41,6 @@ static BOOL ST_Pref(NSString *key, BOOL def) {
     return def;
 }
 
-// ---------- Crash protection ----------
-
 static BOOL ST_GuardBegin(void) {
     @try {
         NSUserDefaults *std = [NSUserDefaults standardUserDefaults];
@@ -61,8 +53,7 @@ static BOOL ST_GuardBegin(void) {
             [std setBool:NO forKey:@"STPending"];
         }
 
-        if ([std boolForKey:@""];
-STTripped"]) {
+        if ([std boolForKey:@"STTripped"]) {
             [std synchronize];
             return NO;
         }
@@ -81,10 +72,10 @@ STTripped"]) {
         [std setBool:YES forKey:@"STPending"];
         [std synchronize];
 
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(       kSTSurviveSeconds * NSEC_PER_SEC [)),
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kSTSurviveSeconds * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
-s            NSUserDefaults *s = [ appendNSUserDefaults standardUserDefaults];
-           String [s setBool:NO forKey:@"STPending"];
+            NSUserDefaults *s = [NSUserDefaults standardUserDefaults];
+            [s setBool:NO forKey:@"STPending"];
             [s setInteger:0 forKey:@"STCrashCount"];
             [s synchronize];
         });
@@ -93,8 +84,6 @@ s            NSUserDefaults *s = [ appendNSUserDefaults standardUserDefaults];
         return NO;
     }
 }
-
-// ---------- Desktop Mode ----------
 
 static BOOL ST_DesktopEffective(void) {
     @try {
@@ -169,8 +158,6 @@ static void ST_PatchDelegateClass(Class cls) {
     class_replaceMethod(cls, sel, newImp, types);
 }
 
-// ---------- Force Copy (JS) ----------
-
 static NSString *ST_ForceCopyJS(void) {
     static NSString *js = nil;
     static dispatch_once_t once;
@@ -181,7 +168,8 @@ static NSString *ST_ForceCopyJS(void) {
         [s appendString:@"window.__stForceCopy=true;"];
         [s appendString:@"var css='*,*::before,*::after{-webkit-user-select:text !important;user-select:text !important;-webkit-touch-callout:default !important;}';"];
         [s appendString:@"function injectStyle(){try{var st=document.createElement('style');st.setAttribute('data-st','forcecopy');st.textContent=css;(document.head||document.documentElement).appendChild(st);}catch(e){}}"];
-        [s appendString:@"injectStyle();:@"var evts=['copy','cut','contextmenu','selectstart','dragstart'];"];
+        [s appendString:@"injectStyle();"];
+        [s appendString:@"var evts=['copy','cut','contextmenu','selectstart','dragstart'];"];
         [s appendString:@"evts.forEach(function(n){window.addEventListener(n,function(e){e.stopImmediatePropagation();},true);});"];
         [s appendString:@"var attrs=['oncopy','oncut','oncontextmenu','onselectstart','ondragstart'];"];
         [s appendString:@"function clean(el){try{attrs.forEach(function(a){if(el&&el.hasAttribute&&el.hasAttribute(a)){el.removeAttribute(a);}});}catch(e){}}"];
@@ -198,8 +186,6 @@ static NSString *ST_ForceCopyJS(void) {
     return js;
 }
 
-// ---------- Video Detector (JS) ----------
-
 static NSString *ST_VideoDetectorJS(void) {
     static NSString *js = nil;
     static dispatch_once_t once;
@@ -215,8 +201,8 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"  lastUrl=url;"];
         [s appendString:@"  btn=document.createElement('div');"];
         [s appendString:@"  btn.id='st-dl-btn';"];
-        [s appendString:@"  btn.style.cssText='position:fixed;bottom:100px;right:20px;z-index:2147483647;background:#007AFF;color:#fff;padding:12px 20px;border-radius:25px;font-size:16px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.3);cursor:pointer;font-family:-apple-system;direction:rtl;';"];
-        [s appendString:@"  btn.textContent='تنزيل الفيديو';"];
+        [s appendString:@"  btn.style.cssText='position:fixed;bottom:100px;right:20px;z-index:2147483647;background:#007AFF;color:#fff;padding:12px 20px;border-radius:25px;font-size:16px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.3);cursor:pointer;font-family:-apple-system;';"];
+        [s appendString:@"  btn.textContent='Download Video';"];
         [s appendString:@"  btn.onclick=function(){try{window.webkit.messageHandlers.stDownload.postMessage({url:lastUrl});}catch(e){}};"];
         [s appendString:@"  document.body.appendChild(btn);"];
         [s appendString:@"}"];
@@ -247,8 +233,6 @@ static NSString *ST_VideoDetectorJS(void) {
     return js;
 }
 
-// ---------- Message Handler ----------
-
 @interface STMessageHandler : NSObject <WKScriptMessageHandler>
 @end
 
@@ -271,9 +255,9 @@ static NSString *ST_VideoDetectorJS(void) {
         dispatch_async(dispatch_get_main_queue(), ^{
             UIAlertController *alert = [UIAlertController
                 alertControllerWithTitle:@"SafariTool"
-                                 message:[NSString stringWithFormat:@"رابط الفيديو:\n\n%@", urlStr]
+                                 message:[NSString stringWithFormat:@"Video URL:\n\n%@", urlStr]
                           preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"حسناً"
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK"
                                                       style:UIAlertActionStyleDefault
                                                     handler:nil]];
 
@@ -290,8 +274,6 @@ static NSString *ST_VideoDetectorJS(void) {
 
 @end
 
-// ---------- Install scripts ----------
-
 static void ST_InstallScripts(WKWebView *wv) {
     @try {
         WKUserContentController *ucc = wv.configuration.userContentController;
@@ -303,7 +285,6 @@ static void ST_InstallScripts(WKWebView *wv) {
         }
         objc_setAssociatedObject(ucc, &kSTInstalledKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-        // Force Copy
         if (ST_Pref(@"SafariTool_ForceCopy", YES)) {
             WKUserScript *script =
                 [[WKUserScript alloc] initWithSource:ST_ForceCopyJS()
@@ -312,7 +293,6 @@ static void ST_InstallScripts(WKWebView *wv) {
             [ucc addUserScript:script];
         }
 
-        // Download Button
         if (ST_Pref(@"SafariTool_DownloadButton", YES)) {
             STMessageHandler *handler = [[STMessageHandler alloc] init];
             [ucc addScriptMessageHandler:handler name:@"stDownload"];
@@ -329,13 +309,11 @@ static void ST_InstallScripts(WKWebView *wv) {
     }
 }
 
-// ---------- Hooks ----------
-
 %group STWebKit
 
 %hook WKWebView
 
-- (id)initWithFrame:(CGRect)frame configuration:(WKWebViewConfiguration *)configuration {
+- (id)initWithFrame:(CGRect)frame configuration:(WKWebViewConfigurationpring *)configuration {
     id r = %orig;
     if (r) {
         ST_InstallScripts((WKWebView *)r);
@@ -353,8 +331,6 @@ static void ST_InstallScripts(WKWebView *wv) {
 %end
 
 %end
-
-// ---------- Entry point ----------
 
 %ctor {
     @autoreleasepool {
