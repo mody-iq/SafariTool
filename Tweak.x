@@ -1,8 +1,80 @@
-#import <Foundation/Foundation.h>
+#importFoundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
-// %ctor يعمل مرة واحدة عند تحميل الأداة داخل العملية المستهدفة.
-// لا يوجد أي %hook أو ميزة وظيفية في هذه المرحلة — فقط تأكيد التحميل.
-%ctor {
-    NSLog(@"[SafariTool] Tweak loaded successfully. RootHide / iOS 18.7 ready.");
+// ============================================================
+//  SafariTool - Step 5: Download Button (Initial Test)
+//  الهدف: التحقق من عمل %hook وإضافة زر في شريط التنقل
+// ============================================================
+
+#pragma mark - قراءة الإعدادات
+
+static NSString *const kSafariToolDomain = @"com.mody.safarittool";
+
+static BOOL SafariTool_BoolPref(NSString *key, BOOL defaultValue) {
+    CFStringRef appID = (__bridge CFStringRef)kSafariToolDomain;
+    CFStringRef cfKey = (__bridge CFStringRef)key;
+    Boolean exists = false;
+    Boolean value = CFPreferencesGetAppBooleanValue(cfKey, appID, &exists);
+    return exists ? (BOOL)value : defaultValue;
 }
+
+static inline BOOL SafariTool_IsEnabled(void) {
+    return SafariTool_BoolPref(@"Enabled", YES);
+}
+
+static inline BOOL SafariTool_IsDownloadButtonEnabled(void) {
+    return SafariTool_BoolPref(@"DownloadButtonEnabled", YES);
+}
+
+#pragma mark - الواجهات الأمامية
+
+@interface BrowserController : UIViewController
+@end
+
+#pragma mark - الهوك
+
+%hook BrowserController
+
+- (void)viewDidLoad {
+    %orig;
+
+    // إذا كانت الأداة معطّلة أو الزر معطّل → لا نفعل شيئاً
+    if (!SafariTool_IsEnabled() || !SafariTool_IsDownloadButtonEnabled()) {
+        return;
+    }
+
+    // نتجنب إضافة الزر أكثر من مرة
+    UIBarButtonItem *existing = self.navigationItem.rightBarButtonItem;
+    if (existing && [existing.accessibilityIdentifier isEqualToString:@"SafariToolDownloadBtn"]) {
+        return;
+    }
+
+    UIBarButtonItem *downloadButton = [[UIBarButtonItem alloc]
+        initWithBarButtonSystemItem:UIBarButtonSystemItemAction
+                             target:self
+                             action:@selector(safaritool_downloadTapped:)];
+
+    downloadButton.accessibilityIdentifier = @"SafariToolDownloadBtn";
+    downloadButton.tintColor = [UIColor systemBlueColor];
+
+    self.navigationItem.rightBarButtonItem = downloadButton;
+
+    NSLog(@"[SafariTool] Download button injected into BrowserController.");
+}
+
+- (void)safaritool_downloadTapped:(UIBarButtonItem *)sender {
+    NSLog(@"[SafariTool] Download button tapped.");
+
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:@"SafariTool"
+                         message:@"زر التنزيل يعمل بنجاح!\n\nفي الخطوة التالية سنضيف منطق التنزيل الفعلي."
+                  preferredStyle:UIAlertControllerStyleAlert];
+
+    [alert addAction:[UIAlertAction actionWithTitle:@"حسناً"
+                                              style:UIAlertActionStyleDefault
+                                            handler:nil]];
+
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+%end
