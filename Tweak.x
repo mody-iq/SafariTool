@@ -13,11 +13,32 @@ static void SafariTool_Diag(NSString *key, NSString *value) {
 }
 
 %ctor {
-    SafariTool_Diag(@"loaded", @"YES");
-    SafariTool_Diag(@"processName", [[NSProcessInfo processInfo] processName]);
-    SafariTool_Diag(@"bundleID", [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown");
-    SafariTool_Diag(@"iosVersion", [[UIDevice currentDevice] systemVersion]);
-    SafariTool_Diag(@"timestamp", [NSString stringWithFormat:@"%.0f", [[NSDate date] timeIntervalSince1970]]);
+    NSString *process = [[NSProcessInfo processInfo] processName] ?: @"unknown";
 
-    NSLog(@"[SafariTool][DIAG] Done. Process: %@", [[NSProcessInfo processInfo] processName]);
+    // نسجّل بمفتاح خاص لكل عملية لتفادي الكتابة فوق بعضها
+    NSString *keyPrefix = [NSString stringWithFormat:@"proc_%@", process];
+
+    SafariTool_Diag([NSString stringWithFormat:@"%@_loaded", keyPrefix], @"YES");
+    SafariTool_Diag([NSString stringWithFormat:@"%@_bundleID", keyPrefix],
+                    [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown");
+    SafariTool_Diag([NSString stringWithFormat:@"%@_timestamp", keyPrefix],
+                    [NSString stringWithFormat:@"%.0f", [[NSDate date] timeIntervalSince1970]]);
+
+    // نكتب مؤشراً عاماً بأن شيئاً ما حُمّل
+    SafariTool_Diag(@"lastProcessName", process);
+    SafariTool_Diag(@"lastBundleID", [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown");
+
+    // فحص الكلاسات المتعلقة بـ Safari
+    NSMutableString *classes = [NSMutableString string];
+    NSArray *names = @[@"BrowserController", @"TabDocument", @"SFBrowserController",
+                       @"SafariViewController", @"BrowserViewController",
+                       @"TabBarController", @"TabController"];
+    for (NSString *name in names) {
+        if (objc_getClass([name UTF8String])) {
+            [classes appendFormat:@"%@,", name];
+        }
+    }
+    SafariTool_Diag(@"foundClasses", classes.length > 0 ? classes : @"none");
+
+    NSLog(@"[SafariTool][DIAG] Done. Process: %@", process);
 }
