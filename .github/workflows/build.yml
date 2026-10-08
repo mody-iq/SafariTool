@@ -23,6 +23,12 @@ jobs:
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
           echo "$HOME/theos/bin" >> $GITHUB_PATH
 
+      - name: Setup Theos SDKs (with private frameworks)
+        run: |
+          rm -rf $HOME/theos/sdks
+          git clone --depth 1 https://github.com/theos/sdks.git $HOME/theos/sdks
+          ls $HOME/theos/sdks
+
       - name: Install build dependencies
         run: |
           brew install ldid dpkg
