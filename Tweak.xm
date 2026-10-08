@@ -3,7 +3,7 @@
 #import <Photos/Photos.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.4.1";
+static NSString *const kSTGuardVersion = @"0.4.3";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -238,6 +238,32 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"if(window.__stVideoDetector){return;}"];
         [s appendString:@"window.__stVideoDetector=true;"];
         [s appendString:@"var btn=null;var lastUrl=null;"];
+        [s appendString:@"function pickBestSource(v){"];
+        [s appendString:@"try{"];
+        [s appendString:@"var sources=v.querySelectorAll('source');"];
+        [s appendString:@"for(var i=0;i<sources.length;i++){"];
+        [s appendString:@"var t=(sources[i].type||'').toLowerCase();"];
+        [s appendString:@"var sr=(sources[i].src||'').toLowerCase();"];
+        [s appendString:@"if(t.indexOf('mp4')>=0||sr.indexOf('.mp4')>=0){return sources[i].src;}"];
+        [s appendString:@"}"];
+        [s appendString:@"for(var i=0;i<sources.length;i++){"];
+        [s appendString:@"var t=(sources[i].type||'').toLowerCase();"];
+        [s appendString:@"var sr=(sources[i].src||'').toLowerCase();"];
+        [s appendString:@"if(t.indexOf('mov')>=0||sr.indexOf('.mov')>=0){return sources[i].src;}"];
+        [s appendString:@"}"];
+        [s appendString:@"for(var i=0;i<sources.length;i++){"];
+        [s appendString:@"var t=(sources[i].type||'').toLowerCase();"];
+        [s appendString:@"var sr=(sources[i].src||'').toLowerCase();"];
+        [s appendString:@"if(t.indexOf('m4v')>=0||sr.indexOf('.m4v')>=0){return sources[i].src;}"];
+        [s appendString:@"}"];
+        [s appendString:@"if(v.currentSrc)return v.currentSrc;"];
+        [s appendString:@"if(v.src)return v.src;"];
+        [s appendString:@"for(var i=0;i<sources.length;i++){"];
+        [s appendString:@"if(sources[i].src)return sources[i].src;"];
+        [s appendString:@"}"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"return null;"];
+        [s appendString:@"}"];
         [s appendString:@"function showButton(url){"];
         [s appendString:@"if(btn&&lastUrl===url){return;}"];
         [s appendString:@"if(btn){btn.remove();btn=null;}"];
@@ -249,20 +275,14 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"btn.onclick=function(){try{btn.textContent='Starting...';window.webkit.messageHandlers.stDownload.postMessage({url:lastUrl});}catch(e){}};"];
         [s appendString:@"document.body.appendChild(btn);"];
         [s appendString:@"}"];
-        [s appendString:@"function hideButton(){if(btn){btn.remove();btn=nil;}lastUrl=null;}"];
+        [s appendString:@"function hideButton(){if(btn){btn.remove();btn=null;}lastUrl=null;}"];
         [s appendString:@"function scan(){"];
         [s appendString:@"try{"];
         [s appendString:@"var videos=document.querySelectorAll('video');"];
         [s appendString:@"if(videos.length===0){hideButton();return;}"];
         [s appendString:@"var found=null;"];
         [s appendString:@"for(var i=0;i<videos.length;i++){"];
-        [s appendString:@"var v=videos[i];"];
-        [s appendString:@"if(v.currentSrc){found=v.currentSrc;break;}"];
-        [s appendString:@"if(v.src){found=v.src;break;}"];
-        [s appendString:@"var srcs=v.querySelectorAll('source');"];
-        [s appendString:@"for(var j=0;j<srcs.length;j++){"];
-        [s appendString:@"if(srcs[j].src){found=srcs[j].src;break;}"];
-        [s appendString:@"}"];
+        [s appendString:@"found=pickBestSource(videos[i]);"];
         [s appendString:@"if(found)break;"];
         [s appendString:@"}"];
         [s appendString:@"if(found){showButton(found);}else{hideButton();}"];
@@ -373,8 +393,6 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 - (void)URLSession:(NSURLSession *)session
       downloadTask:(NSURLSessionDownloadTask *)downloadTask
 didFinishDownloadingToURL:(NSURL *)location {
-    // location is in a temporary directory that is valid only inside this method.
-    // We must copy it to our own temp path first.
     NSString *filename = downloadTask.originalRequest.URL.lastPathComponent;
     if (filename.length == 0) {
         filename = @"video.mp4";
@@ -410,21 +428,58 @@ didFinishDownloadingToURL:(NSURL *)location {
     [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
         [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:fileURL];
     } completionHandler:^(BOOL success, NSError *error) {
-        [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self.progressAlert dismissViewControllerAnimated:YES completion:^{
-                self.progressAlert = nil;
-                if (success) {
+        if (success) {
+            [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self.progressAlert dismissViewControllerAnimated:YES completion:^{
+                    self.progressAlert = nil;
                     ST_ShowResultAlert(@"Saved to Photos",
                                        [NSString stringWithFormat:@"Video saved: %@", name]);
-                } else {
-                    NSString *msg = error.localizedDescription ?: @"Unknown error";
-                    ST_ShowResultAlert(@"Save Failed", msg);
-                }
-            }];
-        });
+                }];
+            });
+            return;
+        }
+
+        NSLog(@"[SafariTool] Photos save failed: %@", error);
+        [self saveVideoToDocuments:path originalName:name];
     }];
+}
+
+- (void)saveVideoToDocuments:(NSString *)path originalName:(NSString *)name {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,
+                                                          NSUserDomainMask, YES);
+    NSString *docs = paths.firstObject ?: NSTemporaryDirectory();
+    NSString *dir = [docs stringByAppendingPathComponent:@"SafariTool"];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+
+    NSString *dst = [dir stringByAppendingPathComponent:name];
+    if ([fm fileExistsAtPath:dst]) {
+        NSString *ext = [dst pathExtension];
+        NSString *base = [dst stringByDeletingPathExtension];
+        NSString *ts = [NSString stringWithFormat:@"%.0f", [[NSDate date] timeIntervalSince1970]];
+        if (ext.length > 0) {
+            dst = [NSString stringWithFormat:@"%@_%@.%@", base, ts, ext];
+        } else {
+            dst = [NSString stringWithFormat:@"%@_%@", base, ts];
+        }
+    }
+
+    NSError *moveErr = nil;
+    [fm moveItemAtPath:path toPath:dst error:&moveErr];
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.progressAlert dismissViewControllerAnimated:YES completion:^{
+            self.progressAlert = nil;
+            if (moveErr) {
+                ST_ShowResultAlert(@"Save Failed", moveErr.localizedDescription);
+            } else {
+                ST_ShowResultAlert(@"Saved to Files",
+                                   [NSString stringWithFormat:@"Saved as %@\n\nPhotos does not support this format (.webm). Use Filza to access it.", name]);
+            }
+        }];
+    });
 }
 
 - (void)URLSession:(NSURLSession *)session
