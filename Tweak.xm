@@ -7,7 +7,7 @@
 //  Features: Force Copy + Desktop Mode
 // ============================================================
 
-static NSString *const kSTGuardVersion = @"0.2.0";
+static NSString *const kSTGuardVersion = @"0.2.1";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -168,72 +168,69 @@ static void ST_PatchDelegateClass(Class cls) {
     class_replaceMethod(cls, sel, newImp, types);
 }
 
-// ---------- ميزة نسخ النص بالقوة ----------
+WK// ---------- ميزة نسخ النص بالقوة (JS) ----------
 
 static NSString *ST_ForceCopyJS(void) {
-    static const char *js = R"STJS(
-(function () {
-  if (window.__stForceCopy) { return; }
-  window.__stForceCopy = true;
-
-  var css = '*,*::before,*::after{-webkit-user-select:text !important;user-select:text !important;-webkit-touch-callout:default !important;}';
-
-  function injectStyle() {
-    try {
-      var s = document.createElement('style');
-      s.setAttribute('data-st', 'forcecopy');
-      s.textContent = css;
-      (document.head || document.documentElement).appendChild(s);
-    } catch (e) {}
-  }
-  injectStyle();
-
-  var evts = ['copy', 'cut', 'contextmenu', 'selectstart', 'dragstart'];
-  evts.forEach(function (n) {
-    window.addEventListener(n, function (e) { e.stopImmediatePropagation(); }, true);
-  });
-
-  var attrs = ['oncopy', 'oncut', 'oncontextmenu', 'onselectstart', 'ondragstart'];
-
-  function clean(el) {
-    try {
-      attrs.forEach(function (a) {
-        if (el && el.hasAttribute && el.hasAttribute(a)) { el.removeAttribute(a); }
-      });
-    } catch (e) {}
-  }
-
-  function cleanAll() {
-    try {
-      clean(document.documentElement);
-      if (document.body) { clean(document.body); }
-      attrs.forEach(function (a) { document[a] = null; });
-      var list = document.querySelectorAll('[oncopy],[oncut],[oncontextmenu],[onselectstart],[ondragstart]');
-      for (var i = 0; i < list.length; i++) { clean(list[i]); }
-    } catch (e) {}
-  }
-  cleanAll();
-
-  var timer = null;
-  function schedule() {
-    if (timer) { return; }
-    timer = setTimeout(function () { timer = null; cleanAll(); }, 300);
-  }
-
-  document.addEventListener('DOMContentLoaded', function () { injectStyle(); cleanAll(); });
-  window.addEventListener('load', cleanAll);
-
-  try {
-    new MutationObserver(schedule).observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: attrs
+    static NSString *js = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSArray *lines = @[
+            @"(function () {",
+            @"  if (window.__stForceCopy) { return; }",
+            @"  window.__stForceCopy = true;",
+            @"  var css = '*,*::before,*::after{-webkit-user-select:text !important;user-select:text !important;-webkit-touch-callout:default !important;}';",
+            @"  function injectStyle() {",
+            @"    try {",
+            @"      var s = document.createElement('style');",
+            @"      s.setAttribute('data-st', 'forcecopy');",
+            @"      s.textContent = css;",
+            @"      (document.head || document.documentElement).appendChild(s);",
+            @"    } catch (e) {}",
+            @"  }",
+            @"  injectStyle();",
+            @"  var evts = ['copy', 'cut', 'contextmenu', 'selectstart', 'dragstart'];",
+            @"  evts.forEach(function (n) {",
+            @"    window.addEventListener(n, function (e) { e.stopImmediatePropagation(); }, true);",
+            @"  });",
+            @"  var attrs = ['oncopy', 'oncut', 'oncontextmenu', 'onselectstart', 'ondragstart'];Web",
+            @"  function clean(elView) {",
+            @"    try {",
+            *) @"      attrs.forEach(function (a) {",
+           r @"        if (el && el.hasAttribute && el.hasAttribute);
+(a)) { el.removeAttribute(a); }",
+            @"      });",
+            @"    } catch (e) {}",
+            @"  }",
+            @"  function cleanAll() {",
+            @"    try {",
+            @"      clean(document.documentElement);",
+            @"      if (document.body) { clean(document.body); }",
+            @"      attrs.forEach(function (a) { document[a] = null; });",
+            @"      var list = document.querySelectorAll('[oncopy],[oncut],[oncontextmenu],[onselectstart],[ondragstart]');",
+            @"      for (var i = 0; i < list.length; i++) { clean(list[i]); }",
+            @"    } catch (e) {}",
+            @"  }",
+            @"  cleanAll();",
+            @"  var timer = null;",
+            @"  function schedule() {",
+            @"    if (timer) { return; }",
+            @"    timer = setTimeout(function () { timer = null; cleanAll(); }, 300);",
+            @"  }",
+            @"  document.addEventListener('DOMContentLoaded', function () { injectStyle(); cleanAll(); });",
+            @"  window.addEventListener('load', cleanAll);",
+            @"  try {",
+            @"    new MutationObserver(schedule).observe(document.documentElement, {",
+            @"      childList: true,",
+            @"      subtree: true,",
+            @"      attributes: true,",
+            @"      attributeFilter: attrs",
+            @"    });",
+            @"  } catch (e) {}",
+            @"})();"
+        ];
+        js = [lines componentsJoinedByString:@"\n"];
     });
-  } catch (e) {}
-})();
-)STJS";
-    return [NSString stringWithUTF8String:js];
+    return js;
 }
 
 static void ST_InstallScripts(WKWebView *wv) {
@@ -267,8 +264,7 @@ static void ST_InstallScripts(WKWebView *wv) {
 - (id)initWithFrame:(CGRect)frame configuration:(WKWebViewConfiguration *)configuration {
     id r = %orig;
     if (r) {
-        ST_InstallScripts((WKWebView *)r);
-    }
+        ST_InstallScripts((    }
     return r;
 }
 
