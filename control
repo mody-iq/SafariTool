@@ -6,4 +6,4 @@ Description: A jailbreak tweak for Safari on iOS 18.7 with RootHide support.
 Maintainer: ModyIQ
 Author: ModyIQ
 Section: Tweaks
-Depends: mobilesubstrate
+Depends: mobilesubstrate, preferenceloader
