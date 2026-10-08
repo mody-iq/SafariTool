@@ -1,8 +1,9 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
 // ============================================================
-//  SafariTool - Step 7: Class Hunter
+//  SafariTool - Step 7: Class Hunter (Fixed)
 //  الهدف: تحديد الكلاس المسؤول عن واجهة المستخدم في Safari
 //  عبر تسجيل كل كلاس يتم الاعتراض عليه في سجل النظام.
 // ============================================================
@@ -29,15 +30,12 @@ static inline BOOL SafariTool_IsDownloadButtonEnabled(void) {
 
 #pragma mark - الهوك (مجموعات متعددة)
 
-// %group يستخدم لتجميع الهوكات المتعلقة بكلاس معين.
-// سيتم تفعيل كل مجموعة داخل %ctor بناءً على ما هو موجود في النظام.
-
 // المجموعة 1: الكلاس التقليدي (iOS 14 وما قبل)
 %group iOS14Group
 %hook BrowserController
 - (void)viewDidLoad {
     %orig;
-    NSLog(@"[SafariTool][iOS14] Class: %@ - viewDidLoad called.", NSStringFromClass([self class]));
+    NSLog(@"[SafariTool][iOS14] Class: %s - viewDidLoad called.", object_getClassName(self));
 }
 %end
 %end
@@ -47,7 +45,7 @@ static inline BOOL SafariTool_IsDownloadButtonEnabled(void) {
 %hook TabDocument
 - (void)viewDidLoad {
     %orig;
-    NSLog(@"[SafariTool][iOS15] Class: %@ - viewDidLoad called.", NSStringFromClass([self class]));
+    NSLog(@"[SafariTool][iOS15] Class: %s - viewDidLoad called.", object_getClassName(self));
 }
 %end
 %end
@@ -57,7 +55,7 @@ static inline BOOL SafariTool_IsDownloadButtonEnabled(void) {
 %hook SFBrowserController
 - (void)viewDidLoad {
     %orig;
-    NSLog(@"[SafariTool][iOS18] Class: %@ - viewDidLoad called.", NSStringFromClass([self class]));
+    NSLog(@"[SafariTool][iOS18] Class: %s - viewDidLoad called.", object_getClassName(self));
 }
 %end
 %end
@@ -67,7 +65,7 @@ static inline BOOL SafariTool_IsDownloadButtonEnabled(void) {
 %hook SafariViewController
 - (void)viewDidLoad {
     %orig;
-    NSLog(@"[SafariTool][Alt] Class: %@ - viewDidLoad called.", NSStringFromClass([self class]));
+    NSLog(@"[SafariTool][Alt] Class: %s - viewDidLoad called.", object_getClassName(self));
 }
 %end
 %end
@@ -76,9 +74,6 @@ static inline BOOL SafariTool_IsDownloadButtonEnabled(void) {
 
 %ctor {
     NSLog(@"[SafariTool] Tweak loaded. Starting class hunter...");
-
-    // تفعيل كل مجموعة فقط إذا كان الكلاس موجوداً في النظام.
-    // هذا يتفادى أخطاء "class not found" ويمنع تعليق العملية.
 
     if (objc_getClass("BrowserController")) {
         NSLog(@"[SafariTool] Found class: BrowserController");
