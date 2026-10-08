@@ -2,9 +2,10 @@
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.3.2";
+static NSString *const kSTGuardVersion = @"0.4.0";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
+static NSString *const kSTDownloadDir = @"/var/mobile/Documents/SafariTool";
 
 static char kSTInstalledKey;
 static char kSTMessageHandlerKey;
@@ -39,6 +40,48 @@ static BOOL ST_Pref(NSString *key, BOOL def) {
         return [v boolValue];
     }
     return def;
+}
+
+static UIViewController *ST_TopViewController(void) {
+    UIWindow *keyWindow = nil;
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if ([scene isKindOfClass:[UIWindowScene class]]) {
+            UIWindowScene *ws = (UIWindowScene *)scene;
+            for (UIWindow *w in ws.windows) {
+                if (w.isKeyWindow) {
+                    keyWindow = w;
+                    break;
+                }
+            }
+            if (keyWindow) {
+                break;
+            }
+        }
+    }
+    if (!keyWindow) {
+        keyWindow = [UIApplication sharedApplication].keyWindow;
+    }
+    UIViewController *vc = keyWindow.rootViewController;
+    while (vc.presentedViewController) {
+        vc = vc.presentedViewController;
+    }
+    return vc;
+}
+
+static void ST_ShowResultAlert(NSString *title, NSString *message) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *top = ST_TopViewController();
+        if (!top) {
+            return;
+        }
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                       message:message
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:nil]];
+        [top presentViewController:alert animated:YES completion:nil];
+    });
 }
 
 static BOOL ST_GuardBegin(void) {
@@ -203,7 +246,7 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"btn.id='st-dl-btn';"];
         [s appendString:@"btn.style.cssText='position:fixed;bottom:100px;right:20px;z-index:2147483647;background:#007AFF;color:#fff;padding:12px 20px;border-radius:25px;font-size:16px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.3);cursor:pointer;font-family:-apple-system;';"];
         [s appendString:@"btn.textContent='Download Video';"];
-        [s appendString:@"btn.onclick=function(){try{window.webkit.messageHandlers.stDownload.postMessage({url:lastUrl});}catch(e){}};"];
+        [s appendString:@"btn.onclick=function(){try{btn.textContent='Starting...';window.webkit.messageHandlers.stDownload.postMessage({url:lastUrl});}catch(e){}};"];
         [s appendString:@"document.body.appendChild(btn);"];
         [s appendString:@"}"];
         [s appendString:@"function hideButton(){if(btn){btn.remove();btn=null;}lastUrl=null;}"];
@@ -233,6 +276,175 @@ static NSString *ST_VideoDetectorJS(void) {
     return js;
 }
 
+// ---------- Download Manager ----------
+
+@interface STDownloadManager : NSObject <NSURLSessionDownloadDelegate>
+@property (nonatomic, strong) NSURLSession *session;
+@property (nonatomic, strong) UIAlertController *progressAlert;
+@end
+
+@implementation STDownloadManager
+
++ (instancetype)shared {
+    static STDownloadManager *inst = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        inst = [[STDownloadManager alloc] init];
+    });
+    return inst;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        [self recreateSession];
+    }
+    return self;
+}
+
+- (void)recreateSession {
+    NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration defaultSessionConfiguration];
+    cfg.timeoutIntervalForRequest = 30.0;
+    cfg.timeoutIntervalForResource = 3600.0;
+    self.session = [NSURLSession sessionWithConfiguration:cfg delegate:self delegateQueue:nil];
+}
+
+- (void)startDownload:(NSString *)urlString {
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (!url) {
+        ST_ShowResultAlert(@"SafariTool", @"Invalid URL");
+        return;
+    }
+
+    NSString *scheme = [url.scheme lowercaseString];
+    if ([scheme isEqualToString:@"blob"] || [scheme isEqualToString:@"data"]) {
+        ST_ShowResultAlert(@"SafariTool", @"This video type (blob/data) cannot be downloaded directly.");
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *top = ST_TopViewController();
+        if (!top) {
+            return;
+        }
+        NSString *name = url.lastPathComponent;
+        if (name.length == 0) {
+            name = @"video";
+        }
+        NSString *msg = [NSString stringWithFormat:@"Downloading %@...\n\n0%%", name];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"SafariTool"
+                                                                       message:msg
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                                  style:UIAlertActionStyleCancel
+                                                handler:^(UIAlertAction *action) {
+            [self.session invalidateAndCancel];
+            [self recreateSession];
+        }]];
+        self.progressAlert = alert;
+        [top presentViewController:alert animated:YES completion:nil];
+    });
+
+    NSURLSessionDownloadTask *task = [self.session downloadTaskWithURL:url];
+    [task resume];
+}
+
+- (void)URLSession:(NSURLSession *)session
+      downloadTask:(NSURLSessionDownloadTask *)downloadTask
+      didWriteData:(int64_t)bytesWritten
+ totalBytesWritten:(int64_t)totalBytesWritten
+totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
+    if (totalBytesExpectedToWrite <= 0) {
+        return;
+    }
+    double progress = (double)totalBytesWritten / (double)totalBytesExpectedToWrite;
+    NSString *name = downloadTask.originalRequest.URL.lastPathComponent;
+    if (name.length == 0) {
+        name = @"video";
+    }
+    NSString *msg = [NSString stringWithFormat:@"Downloading %@...\n\n%.0f%%", name, progress * 100.0];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.progressAlert) {
+            self.progressAlert.message = msg;
+        }
+    });
+}
+
+- (void)URLSession:(NSURLSession *)session
+      downloadTask:(NSURLSessionDownloadTask *)downloadTask
+didFinishDownloadingToURL:(NSURL *)location {
+    NSString *filename = downloadTask.originalRequest.URL.lastPathComponent;
+    if (filename.length == 0) {
+        filename = @"video.mp4";
+    }
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:kSTDownloadDir]) {
+        [fm createDirectoryAtPath:kSTDownloadDir
+      withIntermediateDirectories:YES
+                       attributes:nil
+                            error:nil];
+    }
+
+    NSString *dstPath = [kSTDownloadDir stringByAppendingPathComponent:filename];
+    if ([fm fileExistsAtPath:dstPath]) {
+        NSString *ext = [filename pathExtension];
+        NSString *base = [filename stringByDeletingPathExtension];
+        NSString *ts = [NSString stringWithFormat:@"%.0f", [[NSDate date] timeIntervalSince1970]];
+        if (ext.length > 0) {
+            filename = [NSString stringWithFormat:@"%@_%@.%@", base, ts, ext];
+        } else {
+            filename = [NSString stringWithFormat:@"%@_%@", base, ts];
+        }
+        dstPath = [kSTDownloadDir stringByAppendingPathComponent:filename];
+    }
+
+    NSError *moveErr = nil;
+    BOOL moved = [fm moveItemAtURL:location
+                             toURL:[NSURL fileURLWithPath:dstPath]
+                             error:&moveErr];
+
+    __block NSString *resultTitle;
+    __block NSString *resultMsg;
+    if (moved) {
+        resultTitle = @"Download Complete";
+        resultMsg = [NSString stringWithFormat:@"Saved to:\n\n%@", dstPath];
+    } else {
+        resultTitle = @"Save Failed";
+        resultMsg = moveErr.localizedDescription ?: @"Unknown error";
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.progressAlert dismissViewControllerAnimated:YES completion:^{
+            self.progressAlert = nil;
+            ST_ShowResultAlert(resultTitle, resultMsg);
+        }];
+    });
+}
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didCompleteWithError:(NSError *)error {
+    if (!error) {
+        return;
+    }
+    NSString *msg = error.localizedDescription ?: @"Unknown error";
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.progressAlert) {
+            [self.progressAlert dismissViewControllerAnimated:YES completion:^{
+                self.progressAlert = nil;
+                ST_ShowResultAlert(@"Download Failed", msg);
+            }];
+        } else {
+            ST_ShowResultAlert(@"Download Failed", msg);
+        }
+    });
+}
+
+@end
+
+// ---------- Message Handler ----------
+
 @interface STMessageHandler : NSObject <WKScriptMessageHandler>
 @end
 
@@ -249,24 +461,8 @@ static NSString *ST_VideoDetectorJS(void) {
         if (![urlStr isKindOfClass:[NSString class]] || urlStr.length == 0) {
             return;
         }
-
         NSLog(@"[SafariTool] Download requested: %@", urlStr);
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-            UIAlertController *alert = [UIAlertController
-                alertControllerWithTitle:@"SafariTool"
-                                 message:[NSString stringWithFormat:@"Video URL:\n\n%@", urlStr]
-                          preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"OK"
-                                                      style:UIAlertActionStyleDefault
-                                                    handler:nil]];
-
-            UIWindow *window = [UIApplication sharedApplication].keyWindow;
-            UIViewController *root = window.rootViewController;
-            if (root && !root.presentedViewController) {
-                [root presentViewController:alert animated:YES completion:nil];
-            }
-        });
+        [[STDownloadManager shared] startDownload:urlStr];
     } @catch (NSException *e) {
         NSLog(@"[SafariTool] Message handler exception: %@", e);
     }
@@ -300,9 +496,9 @@ static void ST_InstallScripts(WKWebView *wv) {
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
             WKUserScript *script =
-    [[WKUserScript alloc] initWithSource:ST_VideoDetectorJS()
-                           injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
-                        forMainFrameOnly:NO];
+                [[WKUserScript alloc] initWithSource:ST_VideoDetectorJS()
+                                       injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
+                                    forMainFrameOnly:NO];
             [ucc addUserScript:script];
         }
     } @catch (NSException *e) {
