@@ -8,7 +8,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = SafariTool
 
 SafariTool_FILES = Tweak.xm
-SafariTool_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
+SafariTool_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -std=c++17
 SafariTool_FRAMEWORKS = UIKit WebKit Foundation Photos
 
 include $(THEOS_MAKE_PATH)/tweak.mk
