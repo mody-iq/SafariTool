@@ -10,3 +10,9 @@ SafariTool_FILES = Tweak.x
 SafariTool_CFLAGS = -fobjc-arc
 
 include $(THEOS_MAKE_PATH)/tweak.mk
+
+SUBPROJECTS += SafariToolPrefs
+include $(THEOS_MAKE_PATH)/aggregate.mk
+
+after-install::
+	install.exec "killall -9 MobileSafari"
