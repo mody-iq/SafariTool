@@ -2,8 +2,9 @@
 #import <UIKit/UIKit.h>
 
 // ============================================================
-//  SafariTool - Step 5: Download Button (Initial Test)
-//  الهدف: التحقق من عمل %hook وإضافة زر في شريط التنقل
+//  SafariTool - Step 7: Class Hunter
+//  الهدف: تحديد الكلاس المسؤول عن واجهة المستخدم في Safari
+//  عبر تسجيل كل كلاس يتم الاعتراض عليه في سجل النظام.
 // ============================================================
 
 #pragma mark - قراءة الإعدادات
@@ -26,53 +27,78 @@ static inline BOOL SafariTool_IsDownloadButtonEnabled(void) {
     return SafariTool_BoolPref(@"DownloadButtonEnabled", YES);
 }
 
-#pragma mark - الواجهات الأمامية
+#pragma mark - الهوك (مجموعات متعددة)
 
-@interface BrowserController : UIViewController
-@end
+// %group يستخدم لتجميع الهوكات المتعلقة بكلاس معين.
+// سيتم تفعيل كل مجموعة داخل %ctor بناءً على ما هو موجود في النظام.
 
-#pragma mark - الهوك
-
+// المجموعة 1: الكلاس التقليدي (iOS 14 وما قبل)
+%group iOS14Group
 %hook BrowserController
-
 - (void)viewDidLoad {
     %orig;
-
-    if (!SafariTool_IsEnabled() || !SafariTool_IsDownloadButtonEnabled()) {
-        return;
-    }
-
-    UIBarButtonItem *existing = self.navigationItem.rightBarButtonItem;
-    if (existing && [existing.accessibilityIdentifier isEqualToString:@"SafariToolDownloadBtn"]) {
-        return;
-    }
-
-    UIBarButtonItem *downloadButton = [[UIBarButtonItem alloc]
-        initWithBarButtonSystemItem:UIBarButtonSystemItemAction
-                             target:self
-                             action:@selector(safaritool_downloadTapped:)];
-
-    downloadButton.accessibilityIdentifier = @"SafariToolDownloadBtn";
-    downloadButton.tintColor = [UIColor systemBlueColor];
-
-    self.navigationItem.rightBarButtonItem = downloadButton;
-
-    NSLog(@"[SafariTool] Download button injected into BrowserController.");
+    NSLog(@"[SafariTool][iOS14] Class: %@ - viewDidLoad called.", NSStringFromClass([self class]));
 }
-
-- (void)safaritool_downloadTapped:(UIBarButtonItem *)sender {
-    NSLog(@"[SafariTool] Download button tapped.");
-
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"SafariTool"
-                         message:@"زر التنزيل يعمل بنجاح!\n\nفي الخطوة التالية سنضيف منطق التنزيل الفعلي."
-                  preferredStyle:UIAlertControllerStyleAlert];
-
-    [alert addAction:[UIAlertAction actionWithTitle:@"حسناً"
-                                              style:UIAlertActionStyleDefault
-                                            handler:nil]];
-
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
 %end
+%end
+
+// المجموعة 2: الكلاس المحتمل في iOS 15-17
+%group iOS15Group
+%hook TabDocument
+- (void)viewDidLoad {
+    %orig;
+    NSLog(@"[SafariTool][iOS15] Class: %@ - viewDidLoad called.", NSStringFromClass([self class]));
+}
+%end
+%end
+
+// المجموعة 3: الكلاس المحتمل في iOS 18+
+%group iOS18Group
+%hook SFBrowserController
+- (void)viewDidLoad {
+    %orig;
+    NSLog(@"[SafariTool][iOS18] Class: %@ - viewDidLoad called.", NSStringFromClass([self class]));
+}
+%end
+%end
+
+// المجموعة 4: كلاس بديل
+%group AltGroup
+%hook SafariViewController
+- (void)viewDidLoad {
+    %orig;
+    NSLog(@"[SafariTool][Alt] Class: %@ - viewDidLoad called.", NSStringFromClass([self class]));
+}
+%end
+%end
+
+#pragma mark - نقطة الدخول
+
+%ctor {
+    NSLog(@"[SafariTool] Tweak loaded. Starting class hunter...");
+
+    // تفعيل كل مجموعة فقط إذا كان الكلاس موجوداً في النظام.
+    // هذا يتفادى أخطاء "class not found" ويمنع تعليق العملية.
+
+    if (objc_getClass("BrowserController")) {
+        NSLog(@"[SafariTool] Found class: BrowserController");
+        %init(iOS14Group);
+    }
+
+    if (objc_getClass("TabDocument")) {
+        NSLog(@"[SafariTool] Found class: TabDocument");
+        %init(iOS15Group);
+    }
+
+    if (objc_getClass("SFBrowserController")) {
+        NSLog(@"[SafariTool] Found class: SFBrowserController");
+        %init(iOS18Group);
+    }
+
+    if (objc_getClass("SafariViewController")) {
+        NSLog(@"[SafariTool] Found class: SafariViewController");
+        %init(AltGroup);
+    }
+
+    NSLog(@"[SafariTool] Class hunter initialized.");
+}
