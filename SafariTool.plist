@@ -3,5 +3,9 @@
         Bundles = (
             "com.apple.mobilesafari"
         );
+        Executables = (
+            "MobileSafari"
+        );
+        Mode = "Any";
     };
 }
