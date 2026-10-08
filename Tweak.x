@@ -3,7 +3,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  SafariTool - Step 7: Class Hunter (Fixed)
+//  SafariTool - Step 7: Class Hunter (Fixed v2)
 //  الهدف: تحديد الكلاس المسؤول عن واجهة المستخدم في Safari
 //  عبر تسجيل كل كلاس يتم الاعتراض عليه في سجل النظام.
 // ============================================================
@@ -12,6 +12,7 @@
 
 static NSString *const kSafariToolDomain = @"com.mody.safarittool";
 
+__attribute__((unused))
 static BOOL SafariTool_BoolPref(NSString *key, BOOL defaultValue) {
     CFStringRef appID = (__bridge CFStringRef)kSafariToolDomain;
     CFStringRef cfKey = (__bridge CFStringRef)key;
@@ -20,11 +21,13 @@ static BOOL SafariTool_BoolPref(NSString *key, BOOL defaultValue) {
     return exists ? (BOOL)value : defaultValue;
 }
 
-static inline BOOL SafariTool_IsEnabled(void) {
+__attribute__((unused))
+static BOOL SafariTool_IsEnabled(void) {
     return SafariTool_BoolPref(@"Enabled", YES);
 }
 
-static inline BOOL SafariTool_IsDownloadButtonEnabled(void) {
+__attribute__((unused))
+static BOOL SafariTool_IsDownloadButtonEnabled(void) {
     return SafariTool_BoolPref(@"DownloadButtonEnabled", YES);
 }
 
