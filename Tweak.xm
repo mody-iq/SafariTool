@@ -3,11 +3,11 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  SafariTool - Foundation (Based on proven WKWebView technique)
-//  Features: Force Copy + Desktop Mode
+// SafariTool - Foundation
+// Features: Force Copy + Desktop Mode
 // ============================================================
 
-static NSString *const kSTGuardVersion = @"0.2.1";
+static NSString *const kSTGuardVersion = @"0.2.2";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -15,7 +15,7 @@ static char kSTInstalledKey;
 
 typedef void (^STDecisionHandler)(WKNavigationActionPolicy, WKWebpagePreferences *);
 
-// ---------- قراءة الإعدادات (طريقة موثوقة من sandbox) ----------
+// ---------- Preferences reading (sandbox-safe) ----------
 
 static id ST_GlobalVal(NSString *key) {
     CFPropertyListRef cf = CFPreferencesCopyAppValue((__bridge CFStringRef)key,
@@ -47,7 +47,7 @@ static BOOL ST_Pref(NSString *key, BOOL def) {
     return def;
 }
 
-// ---------- حماية من الانهيار المتكرر ----------
+// ---------- Crash protection ----------
 
 static BOOL ST_GuardBegin(void) {
     @try {
@@ -93,7 +93,7 @@ static BOOL ST_GuardBegin(void) {
     }
 }
 
-// ---------- ميزة سطح المكتب ----------
+// ---------- Desktop Mode ----------
 
 static BOOL ST_DesktopEffective(void) {
     @try {
@@ -168,67 +168,32 @@ static void ST_PatchDelegateClass(Class cls) {
     class_replaceMethod(cls, sel, newImp, types);
 }
 
-WK// ---------- ميزة نسخ النص بالقوة (JS) ----------
+// ---------- Force Copy (JS) ----------
 
 static NSString *ST_ForceCopyJS(void) {
     static NSString *js = nil;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        NSArray *lines = @[
-            @"(function () {",
-            @"  if (window.__stForceCopy) { return; }",
-            @"  window.__stForceCopy = true;",
-            @"  var css = '*,*::before,*::after{-webkit-user-select:text !important;user-select:text !important;-webkit-touch-callout:default !important;}';",
-            @"  function injectStyle() {",
-            @"    try {",
-            @"      var s = document.createElement('style');",
-            @"      s.setAttribute('data-st', 'forcecopy');",
-            @"      s.textContent = css;",
-            @"      (document.head || document.documentElement).appendChild(s);",
-            @"    } catch (e) {}",
-            @"  }",
-            @"  injectStyle();",
-            @"  var evts = ['copy', 'cut', 'contextmenu', 'selectstart', 'dragstart'];",
-            @"  evts.forEach(function (n) {",
-            @"    window.addEventListener(n, function (e) { e.stopImmediatePropagation(); }, true);",
-            @"  });",
-            @"  var attrs = ['oncopy', 'oncut', 'oncontextmenu', 'onselectstart', 'ondragstart'];Web",
-            @"  function clean(elView) {",
-            @"    try {",
-            *) @"      attrs.forEach(function (a) {",
-           r @"        if (el && el.hasAttribute && el.hasAttribute);
-(a)) { el.removeAttribute(a); }",
-            @"      });",
-            @"    } catch (e) {}",
-            @"  }",
-            @"  function cleanAll() {",
-            @"    try {",
-            @"      clean(document.documentElement);",
-            @"      if (document.body) { clean(document.body); }",
-            @"      attrs.forEach(function (a) { document[a] = null; });",
-            @"      var list = document.querySelectorAll('[oncopy],[oncut],[oncontextmenu],[onselectstart],[ondragstart]');",
-            @"      for (var i = 0; i < list.length; i++) { clean(list[i]); }",
-            @"    } catch (e) {}",
-            @"  }",
-            @"  cleanAll();",
-            @"  var timer = null;",
-            @"  function schedule() {",
-            @"    if (timer) { return; }",
-            @"    timer = setTimeout(function () { timer = null; cleanAll(); }, 300);",
-            @"  }",
-            @"  document.addEventListener('DOMContentLoaded', function () { injectStyle(); cleanAll(); });",
-            @"  window.addEventListener('load', cleanAll);",
-            @"  try {",
-            @"    new MutationObserver(schedule).observe(document.documentElement, {",
-            @"      childList: true,",
-            @"      subtree: true,",
-            @"      attributes: true,",
-            @"      attributeFilter: attrs",
-            @"    });",
-            @"  } catch (e) {}",
-            @"})();"
-        ];
-        js = [lines componentsJoinedByString:@"\n"];
+        NSMutableString *s = [NSMutableString string];
+        [s appendString:@"(function(){"];
+        [s appendString:@"if(window.__stForceCopy){return;}"];
+        [s appendString:@"window.__stForceCopy=true;"];
+        [s appendString:@"var css='*,*::before,*::after{-webkit-user-select:text !important;user-select:text !important;-webkit-touch-callout:default !important;}';"];
+        [s appendString:@"function injectStyle(){try{var st=document.createElement('style');st.setAttribute('data-st','forcecopy');st.textContent=css;(document.head||document.documentElement).appendChild(st);}catch(e){}}"];
+        [s appendString:@"injectStyle();"];
+        [s appendString:@"var evts=['copy','cut','contextmenu','selectstart','dragstart'];"];
+        [s appendString:@"evts.forEach(function(n){window.addEventListener(n,function(e){e.stopImmediatePropagation();},true);});"];
+        [s appendString:@"var attrs=['oncopy','oncut','oncontextmenu','onselectstart','ondragstart'];"];
+        [s appendString:@"function clean(el){try{attrs.forEach(function(a){if(el&&el.hasAttribute&&el.hasAttribute(a)){el.removeAttribute(a);}});}catch(e){}}"];
+        [s appendString:@"function cleanAll(){try{clean(document.documentElement);if(document.body){clean(document.body);}attrs.forEach(function(a){document[a]=null;});var list=document.querySelectorAll('[oncopy],[oncut],[oncontextmenu],[onselectstart],[ondragstart]');for(var i=0;i<list.length;i++){clean(list[i]);}}catch(e){}}"];
+        [s appendString:@"cleanAll();"];
+        [s appendString:@"var timer=null;"];
+        [s appendString:@"function schedule(){if(timer){return;}timer=setTimeout(function(){timer=null;cleanAll();},300);}"];
+        [s appendString:@"document.addEventListener('DOMContentLoaded',function(){injectStyle();cleanAll();});"];
+        [s appendString:@"window.addEventListener('load',cleanAll);"];
+        [s appendString:@"try{new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:attrs});}catch(e){}"];
+        [s appendString:@"})();"];
+        js = [s copy];
     });
     return js;
 }
@@ -255,7 +220,7 @@ static void ST_InstallScripts(WKWebView *wv) {
     }
 }
 
-// ---------- الهوك ----------
+// ---------- Hooks ----------
 
 %group STWebKit
 
@@ -264,7 +229,8 @@ static void ST_InstallScripts(WKWebView *wv) {
 - (id)initWithFrame:(CGRect)frame configuration:(WKWebViewConfiguration *)configuration {
     id r = %orig;
     if (r) {
-        ST_InstallScripts((    }
+        ST_InstallScripts((WKWebView *)r);
+    }
     return r;
 }
 
@@ -279,7 +245,7 @@ static void ST_InstallScripts(WKWebView *wv) {
 
 %end
 
-// ---------- نقطة الدخول ----------
+// ---------- Entry point ----------
 
 %ctor {
     @autoreleasepool {
