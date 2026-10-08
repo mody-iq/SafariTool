@@ -5,9 +5,14 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-14
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -15,39 +20,25 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            make git curl fakeroot dpkg-dev \
-            libxml2 libplist-dev libssl-dev \
-            clang lld zip unzip
-
-      - name: Install ldid
-        run: |
-          git clone --depth=1 https://github.com/ProcursusTeam/ldid.git /tmp/ldid
-          cd /tmp/ldid
-          git submodule update --init --depth=1
-          make CXX=clang++
-          sudo cp ./ldid /usr/local/bin/ldid
-          sudo chmod +x /usr/local/bin/ldid
-          ldid -v || true
-
-      - name: Install Theos (RootHide fork)
+      - name: Setup Theos (RootHide fork)
         run: |
           git clone --recursive --depth=1 https://github.com/roothide/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
           echo "$HOME/theos/bin" >> $GITHUB_PATH
 
-      - name: Install Theos SDKs
+      - name: Setup Theos SDKs
         run: |
           rm -rf $HOME/theos/sdks
           git clone --depth=1 https://github.com/theos/sdks.git $HOME/theos/sdks
           ls $HOME/theos/sdks
 
+      - name: Install build dependencies
+        run: |
+          brew install ldid dpkg
+
       - name: Build package
         run: |
-          make package FINALPACKAGE=1 -j$(nproc)
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
