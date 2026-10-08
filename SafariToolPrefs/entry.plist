@@ -1,0 +1,10 @@
+{
+    entry = {
+        bundle = "SafariToolPrefs";
+        cell = PSLinkCell;
+        detail = "SafariToolPrefsRootListController";
+        icon = "icon.png";
+        isController = 1;
+        label = "SafariTool";
+    };
+}
