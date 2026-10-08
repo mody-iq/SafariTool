@@ -1,11 +1,11 @@
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
+#import <Photos/Photos.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.4.0";
+static NSString *const kSTGuardVersion = @"0.4.1";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
-static NSString *const kSTDownloadDir = @"/var/mobile/Documents/SafariTool";
 
 static char kSTInstalledKey;
 static char kSTMessageHandlerKey;
@@ -249,7 +249,7 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"btn.onclick=function(){try{btn.textContent='Starting...';window.webkit.messageHandlers.stDownload.postMessage({url:lastUrl});}catch(e){}};"];
         [s appendString:@"document.body.appendChild(btn);"];
         [s appendString:@"}"];
-        [s appendString:@"function hideButton(){if(btn){btn.remove();btn=null;}lastUrl=null;}"];
+        [s appendString:@"function hideButton(){if(btn){btn.remove();btn=nil;}lastUrl=null;}"];
         [s appendString:@"function scan(){"];
         [s appendString:@"try{"];
         [s appendString:@"var videos=document.querySelectorAll('video');"];
@@ -373,59 +373,67 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 - (void)URLSession:(NSURLSession *)session
       downloadTask:(NSURLSessionDownloadTask *)downloadTask
 didFinishDownloadingToURL:(NSURL *)location {
+    // location is in a temporary directory that is valid only inside this method.
+    // We must copy it to our own temp path first.
     NSString *filename = downloadTask.originalRequest.URL.lastPathComponent;
     if (filename.length == 0) {
         filename = @"video.mp4";
     }
 
+    NSString *tmpDir = NSTemporaryDirectory();
+    NSString *tmpPath = [tmpDir stringByAppendingPathComponent:filename];
+
     NSFileManager *fm = [NSFileManager defaultManager];
-    if (![fm fileExistsAtPath:kSTDownloadDir]) {
-        [fm createDirectoryAtPath:kSTDownloadDir
-      withIntermediateDirectories:YES
-                       attributes:nil
-                            error:nil];
+    [fm removeItemAtPath:tmpPath error:nil];
+
+    NSError *copyErr = nil;
+    BOOL copied = [fm copyItemAtURL:location
+                              toURL:[NSURL fileURLWithPath:tmpPath]
+                              error:&copyErr];
+    if (!copied) {
+        NSString *msg = copyErr.localizedDescription ?: @"Could not copy file";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self.progressAlert dismissViewControllerAnimated:YES completion:^{
+                self.progressAlert = nil;
+                ST_ShowResultAlert(@"Save Failed", msg);
+            }];
+        });
+        return;
     }
 
-    NSString *dstPath = [kSTDownloadDir stringByAppendingPathComponent:filename];
-    if ([fm fileExistsAtPath:dstPath]) {
-        NSString *ext = [filename pathExtension];
-        NSString *base = [filename stringByDeletingPathExtension];
-        NSString *ts = [NSString stringWithFormat:@"%.0f", [[NSDate date] timeIntervalSince1970]];
-        if (ext.length > 0) {
-            filename = [NSString stringWithFormat:@"%@_%@.%@", base, ts, ext];
-        } else {
-            filename = [NSString stringWithFormat:@"%@_%@", base, ts];
-        }
-        dstPath = [kSTDownloadDir stringByAppendingPathComponent:filename];
-    }
+    [self saveVideoToPhotos:tmpPath originalName:filename];
+}
 
-    NSError *moveErr = nil;
-    BOOL moved = [fm moveItemAtURL:location
-                             toURL:[NSURL fileURLWithPath:dstPath]
-                             error:&moveErr];
+- (void)saveVideoToPhotos:(NSString *)path originalName:(NSString *)name {
+    NSURL *fileURL = [NSURL fileURLWithPath:path];
 
-    __block NSString *resultTitle;
-    __block NSString *resultMsg;
-    if (moved) {
-        resultTitle = @"Download Complete";
-        resultMsg = [NSString stringWithFormat:@"Saved to:\n\n%@", dstPath];
-    } else {
-        resultTitle = @"Save Failed";
-        resultMsg = moveErr.localizedDescription ?: @"Unknown error";
-    }
+    [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+        [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:fileURL];
+    } completionHandler:^(BOOL success, NSError *error) {
+        [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self.progressAlert dismissViewControllerAnimated:YES completion:^{
-            self.progressAlert = nil;
-            ST_ShowResultAlert(resultTitle, resultMsg);
-        }];
-    });
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self.progressAlert dismissViewControllerAnimated:YES completion:^{
+                self.progressAlert = nil;
+                if (success) {
+                    ST_ShowResultAlert(@"Saved to Photos",
+                                       [NSString stringWithFormat:@"Video saved: %@", name]);
+                } else {
+                    NSString *msg = error.localizedDescription ?: @"Unknown error";
+                    ST_ShowResultAlert(@"Save Failed", msg);
+                }
+            }];
+        });
+    }];
 }
 
 - (void)URLSession:(NSURLSession *)session
               task:(NSURLSessionTask *)task
 didCompleteWithError:(NSError *)error {
     if (!error) {
+        return;
+    }
+    if (error.code == NSURLErrorCancelled) {
         return;
     }
     NSString *msg = error.localizedDescription ?: @"Unknown error";
