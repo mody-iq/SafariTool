@@ -300,9 +300,9 @@ static void ST_InstallScripts(WKWebView *wv) {
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
             WKUserScript *script =
-                [[WKUserScript alloc] initWithSource:ST_VideoDetectorJS()
-                                       injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
-                                    forMainFrameOnly:YES];
+    [[WKUserScript alloc] initWithSource:ST_VideoDetectorJS()
+                           injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
+                        forMainFrameOnly:NO];
             [ucc addUserScript:script];
         }
     } @catch (NSException *e) {
