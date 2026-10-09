@@ -4,7 +4,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.7.3";
+static NSString *const kSTGuardVersion = @"0.7.4";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -236,9 +236,6 @@ static NSString *ST_ForceCopyJS(void) {
     return js;
 }
 
-// ---------- Stream Capture JS (NEW) ----------
-// Runs at DocumentStart, hooks fetch/XHR to capture m3u8/mpd URLs.
-
 static NSString *ST_StreamCaptureJS(void) {
     static NSString *js = nil;
     static dispatch_once_t once;
@@ -435,8 +432,6 @@ static NSString *ST_VideoDetectorJS(void) {
     return js;
 }
 
-// ---------- HLS Downloader ----------
-
 @interface STHLSDownloader : NSObject
 @property (nonatomic, strong) AVAssetExportSession *exportSession;
 @property (nonatomic, strong) UIAlertController *progressAlert;
@@ -445,6 +440,7 @@ static NSString *ST_VideoDetectorJS(void) {
 @property (nonatomic, copy) NSString *ua;
 @property (nonatomic, copy) NSString *filename;
 @property (nonatomic, strong) NSTimer *progressTimer;
+@property (nonatomic, strong) WKWebView *webView;
 @end
 
 @implementation STHLSDownloader
@@ -458,7 +454,10 @@ static NSString *ST_VideoDetectorJS(void) {
     return inst;
 }
 
-- (void)startWithURL:(NSString *)urlString referer:(NSString *)referer ua:(NSString *)ua {
+- (void)startWithURL:(NSString *)urlString
+             referer:(NSString *)referer
+                  ua:(NSString *)ua
+             webView:(WKWebView *)webView {
     NSURL *url = [NSURL URLWithString:urlString];
     if (!url) {
         ST_ShowResultAlert(@"SafariTool", @"Invalid URL");
@@ -468,6 +467,7 @@ static NSString *ST_VideoDetectorJS(void) {
     self.urlString = urlString;
     self.referer = referer;
     self.ua = ua;
+    self.webView = webView;
 
     NSString *base = url.lastPathComponent;
     if (base.length == 0) {
@@ -505,24 +505,70 @@ static NSString *ST_VideoDetectorJS(void) {
         [top presentViewController:alert animated:YES completion:nil];
     });
 
+    // Fetch cookies from WebView then start
+    [self fetchCookiesAndBegin];
+}
+
+- (void)fetchCookiesAndBegin {
+    __weak STHLSDownloader *weakSelf = self;
+
+    WKWebView *wv = self.webView;
+    if (!wv) {
+        [self beginWithCookieHeader:@""];
+        return;
+    }
+
+    WKHTTPCookieStore *store = wv.configuration.websiteDataStore.httpCookieStore;
+    if (!store) {
+        [self beginWithCookieHeader:@""];
+        return;
+    }
+
+    [store getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            STHLSDownloader *strongSelf = weakSelf;
+            if (!strongSelf) {
+                return;
+            }
+            NSMutableArray *parts = [NSMutableArray array];
+            for (NSHTTPCookie *cookie in cookies) {
+                if (cookie.name.length == 0) continue;
+                [parts addObject:[NSString stringWithFormat:@"%@=%@",
+                                  cookie.name, cookie.value ?: @""]];
+            }
+            NSString *cookieHeader = [parts componentsJoinedByString:@"; "];
+            NSLog(@"[SafariTool] Passing %lu cookies to HLS request", (unsigned long)cookies.count);
+            [strongSelf beginWithCookieHeader:cookieHeader];
+        });
+    }];
+}
+
+- (void)beginWithCookieHeader:(NSString *)cookieHeader {
+    NSURL *url = [NSURL URLWithString:self.urlString];
+
     NSMutableDictionary *headers = [NSMutableDictionary dictionary];
-    if (referer.length > 0) {
-        headers[@"Referer"] = referer;
-        NSURL *refURL = [NSURL URLWithString:referer];
+    if (self.referer.length > 0) {
+        headers[@"Referer"] = self.referer;
+        NSURL *refURL = [NSURL URLWithString:self.referer];
         if (refURL.scheme.length > 0 && refURL.host.length > 0) {
             headers[@"Origin"] = [NSString stringWithFormat:@"%@://%@",
                                   refURL.scheme, refURL.host];
         }
     }
-    if (ua.length > 0) {
-        headers[@"User-Agent"] = ua;
+    if (self.ua.length > 0) {
+        headers[@"User-Agent"] = self.ua;
     }
+    if (cookieHeader.length > 0) {
+        headers[@"Cookie"] = cookieHeader;
+    }
+    headers[@"Accept"] = @"*/*";
 
     NSDictionary *options = @{
         kSTAVHeadersKey: headers
     };
 
     AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:options];
+    __weak STHLSDownloader *weakSelf = self;
 
     [asset loadValuesAsynchronouslyForKeys:@[@"tracks", @"duration"]
                          completionHandler:^{
@@ -534,7 +580,9 @@ static NSString *ST_VideoDetectorJS(void) {
             NSError *err = nil;
             AVKeyValueStatus status = [asset statusOfValueForKey:@"tracks" error:&err];
             if (status != AVKeyValueStatusLoaded) {
-                NSString *msg = err.localizedDescription ?: @"Could not load HLS tracks";
+                NSString *detail = err.localizedDescription ?: @"Unknown loading error";
+                NSString *msg = [NSString stringWithFormat:
+                    @"Could not load HLS stream.\n\nReason: %@\n\nThis usually happens when:\n- The URL expired (try again quickly)\n- The server rejects non-Safari requests\n- DRM/FairPlay protection\n\nTry: play the video, then immediately press download.", detail];
                 [strongSelf.progressAlert dismissViewControllerAnimated:YES completion:^{
                     strongSelf.progressAlert = nil;
                     ST_ShowResultAlert(@"HLS Load Failed", msg);
@@ -609,7 +657,9 @@ static NSString *ST_VideoDetectorJS(void) {
 
     NSString *errMsg = nil;
     if (status == AVAssetExportSessionStatusCancelled) {
-        errMsg = @"The operation was cancelled by the system.\n\nPossible causes:\n- Stream requires cookies/auth\n- Stream is DRM-protected\n- Server rejected the request";
+        NSString *detail = session.error.localizedDescription ?: @"";
+        errMsg = [NSString stringWithFormat:
+            @"The stream was cancelled by iOS.\n\n%@\n\nPossible reasons:\n- Server rejected the request (auth/cookies)\n- Stream uses DRM protection\n- Stream uses a private CDN\n\nThe HLS stream itself may be valid, but iOS refuses to merge it without authorization from the site.", detail];
     } else if (status == AVAssetExportSessionStatusFailed) {
         errMsg = session.error.localizedDescription ?: @"Unknown failure";
     } else {
@@ -683,8 +733,6 @@ static NSString *ST_VideoDetectorJS(void) {
 }
 
 @end
-
-// ---------- Direct Download Manager ----------
 
 @interface STDownloadManager : NSObject <NSURLSessionDownloadDelegate>
 @property (nonatomic, strong) NSURLSession *session;
@@ -905,8 +953,6 @@ didCompleteWithError:(NSError *)error {
 
 @end
 
-// ---------- Message Handler ----------
-
 static BOOL ST_IsHLSURL(NSString *urlString) {
     if (urlString.length == 0) {
         return NO;
@@ -934,6 +980,7 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
         NSString *ua = body[@"ua"];
         BOOL isBlob = [body[@"blob"] boolValue];
         NSArray *streams = body[@"streams"];
+        WKWebView *wv = message.webView;
 
         if (![referer isKindOfClass:[NSString class]]) {
             referer = @"";
@@ -942,9 +989,8 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
             ua = @"";
         }
 
-        // Streaming case: pick from captured list
         if (isBlob || !urlStr || urlStr.length == 0 || [urlStr hasPrefix:@"blob:"]) {
-            [self handleStreamingChoice:streams referer:referer ua:ua];
+            [self handleStreamingChoice:streams referer:referer ua:ua webView:wv];
             return;
         }
 
@@ -955,7 +1001,10 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
         NSLog(@"[SafariTool] Download requested: %@", urlStr);
 
         if (ST_IsHLSURL(urlStr)) {
-            [[STHLSDownloader shared] startWithURL:urlStr referer:referer ua:ua];
+            [[STHLSDownloader shared] startWithURL:urlStr
+                                            referer:referer
+                                                 ua:ua
+                                            webView:wv];
         } else {
             [[STDownloadManager shared] startDownload:urlStr referer:referer ua:ua];
         }
@@ -964,7 +1013,10 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
     }
 }
 
-- (void)handleStreamingChoice:(NSArray *)streams referer:(NSString *)referer ua:(NSString *)ua {
+- (void)handleStreamingChoice:(NSArray *)streams
+                     referer:(NSString *)referer
+                          ua:(NSString *)ua
+                     webView:(WKWebView *)wv {
     NSMutableArray *valid = [NSMutableArray array];
     if ([streams isKindOfClass:[NSArray class]]) {
         for (id s in streams) {
@@ -983,7 +1035,7 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
     if (valid.count == 1) {
         NSString *url = valid.firstObject;
         NSLog(@"[SafariTool] Using single captured stream: %@", url);
-        [[STHLSDownloader shared] startWithURL:url referer:referer ua:ua];
+        [[STHLSDownloader shared] startWithURL:url referer:referer ua:ua webView:wv];
         return;
     }
 
@@ -994,7 +1046,7 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
         }
         UIAlertController *sheet =
             [UIAlertController alertControllerWithTitle:@"Choose a stream"
-                                                message:@"Multiple video streams were detected. Pick the one you want:"
+                                                message:@"Multiple video streams were detected. Try option 1 first (usually the master playlist):"
                                          preferredStyle:UIAlertControllerStyleActionSheet];
 
         NSInteger idx = 1;
@@ -1007,7 +1059,7 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
             [sheet addAction:[UIAlertAction actionWithTitle:title
                                                       style:UIAlertActionStyleDefault
                                                     handler:^(UIAlertAction *action) {
-                [[STHLSDownloader shared] startWithURL:url referer:referer ua:ua];
+                [[STHLSDownloader shared] startWithURL:url referer:referer ua:ua webView:wv];
             }]];
             idx++;
         }
@@ -1040,7 +1092,6 @@ static void ST_InstallScripts(WKWebView *wv) {
         objc_setAssociatedObject(ucc, &kSTInstalledKey, @YES,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-        // Stream capture hook (must be first - DocumentStart)
         WKUserScript *captureScript =
             [[WKUserScript alloc] initWithSource:ST_StreamCaptureJS()
                                    injectionTime:WKUserScriptInjectionTimeAtDocumentStart
