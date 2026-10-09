@@ -4,7 +4,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.8.2";
+static NSString *const kSTGuardVersion = @"0.8.3";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -407,10 +407,6 @@ static NSString *ST_VideoDetectorJS(void) {
     return js;
 }
 
-// ============================================================
-// Floating Progress Indicator (uses its own UIWindow)
-// ============================================================
-
 @interface STFloatingView : UIView
 @property (nonatomic, strong) UILabel *label;
 @property (nonatomic, copy) void (^onTap)(void);
@@ -498,7 +494,7 @@ static NSString *ST_VideoDetectorJS(void) {
         @try {
             if (!self.view) {
                 self.view = [[STFloatingView alloc] init];
-                __weak typeof(self) weakSelf = self;
+                STFloatingProgress *weakSelf = self;
                 self.view.onTap = ^{
                     if (weakSelf.onTap) weakSelf.onTap();
                 };
@@ -572,10 +568,6 @@ static NSString *ST_VideoDetectorJS(void) {
 
 @end
 
-// ============================================================
-// HLS Downloader
-// ============================================================
-
 @interface STHLSDownloader : NSObject <AVAssetDownloadDelegate>
 @property (nonatomic, strong) AVAssetDownloadURLSession *session;
 @property (nonatomic, strong) AVAssetDownloadTask *task;
@@ -631,8 +623,8 @@ static NSString *ST_VideoDetectorJS(void) {
     if (referer.length > 0) {
         headers[@"Referer"] = referer;
         NSURL *refURL = [NSURL URLWithString:referer];
-        ifCould (refURL.scheme.length > 0 && ref notURL.host.length > 0) {
-            headers[@"Origin create"] = [NSString stringWithFormat:@"%@ download://%@",
+        if (refURL.scheme.length > 0 && refURL.host.length > 0) {
+            headers[@"Origin"] = [NSString stringWithFormat:@"%@://%@",
                                   refURL.scheme, refURL.host];
         }
     }
@@ -663,7 +655,7 @@ static NSString *ST_VideoDetectorJS(void) {
                 [self.progressAlert dismissViewControllerAnimated:YES completion:^{
                     self.progressAlert = nil;
                     ST_ShowResultAlert(@"HLS Download Failed",
-                                       @" task.");
+                                       @"Could not create download task.");
                 }];
             } else {
                 ST_ShowResultAlert(@"HLS Download Failed",
@@ -686,18 +678,15 @@ static NSString *ST_VideoDetectorJS(void) {
 }
 
 - (void)showAlert {
-    __weak STHLSDownloader *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        STHLSDownloader *strongSelf = weakSelf;
-        if (!strongSelf) return;
-        if (strongSelf.progressAlert) return;
+        if (self.progressAlert) return;
 
         UIViewController *top = ST_SafeTopViewController();
         if (!top) return;
         if (top.presentedViewController) return;
 
         NSString *msg = [NSString stringWithFormat:@"Downloading HLS...\n\n%@\n%.0f%%",
-                         strongSelf.filename, strongSelf.currentProgress * 100.0];
+                         self.filename, self.currentProgress * 100.0];
         UIAlertController *alert =
             [UIAlertController alertControllerWithTitle:@"SafariTool (HLS)"
                                                 message:msg
@@ -708,36 +697,33 @@ static NSString *ST_VideoDetectorJS(void) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                                          (int64_t)(0.35 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
-                [strongSelf enterBackgroundMode];
+                [self enterBackgroundMode];
             });
         }]];
         [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
                                                   style:UIAlertActionStyleCancel
                                                 handler:^(UIAlertAction *action) {
-            [strongSelf cancel];
+            [self cancel];
         }]];
-        strongSelf.progressAlert = alert;
-        strongSelf.inBackgroundMode = NO;
+        self.progressAlert = alert;
+        self.inBackgroundMode = NO;
         [top presentViewController:alert animated:YES completion:nil];
     });
 }
 
 - (void)enterBackgroundMode {
     self.inBackgroundMode = YES;
-    __weak STHLSDownloader *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        STHLSDownloader *strongSelf = weakSelf;
-        if (!strongSelf) return;
-        if (strongSelf.finished || strongSelf.cancelled) return;
+        if (self.finished || self.cancelled) return;
 
         NSString *pct = [NSString stringWithFormat:@"%.0f%%",
-                         strongSelf.currentProgress * 100.0];
+                         self.currentProgress * 100.0];
         STFloatingProgress *fp = [STFloatingProgress shared];
         fp.onTap = ^{
-            [strongSelf showAlert];
+            [self showAlert];
         };
         fp.onCancel = ^{
-            [strongSelf cancel];
+            [self cancel];
         };
         [fp showWithText:pct];
     });
@@ -821,7 +807,7 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
                                              (int64_t)(0.3 * NSEC_PER_SEC)),
                                dispatch_get_main_queue(), ^{
                     ST_ShowResultAlert(resultTitle, resultMsg);
-                });
+                }];
             }];
         } else {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
@@ -855,7 +841,7 @@ didCompleteWithError:(NSError *)error {
                                dispatch_get_main_queue(), ^{
                     ST_ShowResultAlert(@"HLS Download Failed",
                                        error.localizedDescription ?: @"Unknown error");
-                });
+                }];
             }];
         } else {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
@@ -887,10 +873,6 @@ didCompleteWithError:(NSError *)error {
 }
 
 @end
-
-// ============================================================
-// Direct (MP4) Downloader
-// ============================================================
 
 @interface STDownloadManager : NSObject <NSURLSessionDownloadDelegate>
 @property (nonatomic, strong) NSURLSession *session;
@@ -962,18 +944,15 @@ didCompleteWithError:(NSError *)error {
 }
 
 - (void)showAlert {
-    __weak STDownloadManager *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        STDownloadManager *strongSelf = weakSelf;
-        if (!strongSelf) return;
-        if (strongSelf.progressAlert) return;
+        if (self.progressAlert) return;
 
         UIViewController *top = ST_SafeTopViewController();
         if (!top) return;
         if (top.presentedViewController) return;
 
         NSString *msg = [NSString stringWithFormat:@"Downloading %@...\n\n%.0f%%",
-                         strongSelf.filename, strongSelf.currentProgress * 100.0];
+                         self.filename, self.currentProgress * 100.0];
         UIAlertController *alert =
             [UIAlertController alertControllerWithTitle:@"SafariTool"
                                                 message:msg
@@ -984,36 +963,33 @@ didCompleteWithError:(NSError *)error {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                                          (int64_t)(0.35 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
-                [strongSelf enterBackgroundMode];
+                [self enterBackgroundMode];
             });
         }]];
         [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
                                                   style:UIAlertActionStyleCancel
                                                 handler:^(UIAlertAction *action) {
-            [strongSelf cancel];
+            [self cancel];
         }]];
-        strongSelf.progressAlert = alert;
-        strongSelf.inBackgroundMode = NO;
+        self.progressAlert = alert;
+        self.inBackgroundMode = NO;
         [top presentViewController:alert animated:YES completion:nil];
     });
 }
 
 - (void)enterBackgroundMode {
     self.inBackgroundMode = YES;
-    __weak STDownloadManager *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        STDownloadManager *strongSelf = weakSelf;
-        if (!strongSelf) return;
-        if (strongSelf.finished || strongSelf.cancelled) return;
+        if (self.finished || self.cancelled) return;
 
         NSString *pct = [NSString stringWithFormat:@"%.0f%%",
-                         strongSelf.currentProgress * 100.0];
+                         self.currentProgress * 100.0];
         STFloatingProgress *fp = [STFloatingProgress shared];
         fp.onTap = ^{
-            [strongSelf showAlert];
+            [self showAlert];
         };
         fp.onCancel = ^{
-            [strongSelf cancel];
+            [self cancel];
         };
         [fp showWithText:pct];
     });
@@ -1075,32 +1051,30 @@ didFinishDownloadingToURL:(NSURL *)location {
 
 - (void)saveVideoToPhotos:(NSString *)path {
     NSURL *fileURL = [NSURL fileURLWithPath:path];
-    __weak STDownloadManager *weakSelf = self;
 
     [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
         [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:fileURL];
     } completionHandler:^(BOOL success, NSError *error) {
-        STDownloadManager *strongSelf = weakSelf;
         if (success) {
             [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
             dispatch_async(dispatch_get_main_queue(), ^{
                 [[STFloatingProgress shared] hide];
-                if (strongSelf.progressAlert) {
-                    [strongSelf.progressAlert dismissViewControllerAnimated:YES completion:^{
-                        strongSelf.progressAlert = nil;
+                if (self.progressAlert) {
+                    [self.progressAlert dismissViewControllerAnimated:YES completion:^{
+                        self.progressAlert = nil;
                         ST_ShowResultAlert(@"Saved to Photos",
                                            [NSString stringWithFormat:@"Video saved: %@",
-                                            strongSelf.filename]);
+                                            self.filename]);
                     }];
                 } else {
                     ST_ShowResultAlert(@"Saved to Photos",
                                        [NSString stringWithFormat:@"Video saved: %@",
-                                        strongSelf.filename]);
+                                        self.filename]);
                 }
             });
             return;
         }
-        [strongSelf saveVideoToDocuments:path];
+        [self saveVideoToDocuments:path];
     }];
 }
 
