@@ -1122,4 +1122,344 @@ didCompleteWithError:(NSError *)error {
     [self showAlert];
 
     NSURLSessionDownloadTask *task = [self.session downloadTaskWithRequest:req];
-    [task resume
+    [task resume];
+}
+
+- (void)showAlert {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.progressAlert) return;
+        UIViewController *top = ST_SafeTopViewController();
+        if (!top) return;
+        if (top.presentedViewController) return;
+
+        NSString *msg = [NSString stringWithFormat:@"Downloading %@...\n\n%.0f%%",
+                         self.filename, self.currentProgress * 100.0];
+        UIAlertController *alert =
+            [UIAlertController alertControllerWithTitle:@"SafariTool"
+                                                message:msg
+                                         preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Background"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(UIAlertAction *action) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                         (int64_t)(0.35 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                [self enterBackgroundMode];
+            });
+        }]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                                  style:UIAlertActionStyleCancel
+                                                handler:^(UIAlertAction *action) {
+            [self cancel];
+        }]];
+        self.progressAlert = alert;
+        self.inBackgroundMode = NO;
+        [top presentViewController:alert animated:YES completion:nil];
+    });
+}
+
+- (void)enterBackgroundMode {
+    self.inBackgroundMode = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.finished || self.cancelled) return;
+        NSString *pct = [NSString stringWithFormat:@"%.0f%%", self.currentProgress * 100.0];
+        STFloatingProgress *fp = [STFloatingProgress shared];
+        fp.onTap = ^{ [self showAlert]; };
+        fp.onCancel = ^{ [self cancel]; };
+        [fp showWithText:pct];
+    });
+}
+
+- (void)URLSession:(NSURLSession *)session
+      downloadTask:(NSURLSessionDownloadTask *)downloadTask
+      didWriteData:(int64_t)bytesWritten
+ totalBytesWritten:(int64_t)totalBytesWritten
+totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
+    if (self.cancelled || self.finished) return;
+    if (totalBytesExpectedToWrite <= 0) return;
+    double progress = (double)totalBytesWritten / (double)totalBytesExpectedToWrite;
+    self.currentProgress = progress;
+
+    if (self.inBackgroundMode) {
+        NSString *pct = [NSString stringWithFormat:@"%.0f%%", progress * 100.0];
+        [[STFloatingProgress shared] updateText:pct];
+    } else if (self.progressAlert) {
+        NSString *msg = [NSString stringWithFormat:@"Downloading %@...\n\n%.0f%%",
+                         self.filename, progress * 100.0];
+        self.progressAlert.message = msg;
+    }
+}
+
+- (void)URLSession:(NSURLSession *)session
+      downloadTask:(NSURLSessionDownloadTask *)downloadTask
+didFinishDownloadingToURL:(NSURL *)location {
+    if (self.cancelled || self.finished) return;
+    self.finished = YES;
+
+    NSString *tmpPath = [NSTemporaryDirectory() stringByAppendingPathComponent:self.filename];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [fm removeItemAtPath:tmpPath error:nil];
+
+    NSError *copyErr = nil;
+    BOOL copied = [fm copyItemAtURL:location
+                              toURL:[NSURL fileURLWithPath:tmpPath]
+                              error:&copyErr];
+    if (!copied) {
+        NSString *msg = copyErr.localizedDescription ?: @"Could not copy";
+        [self finishWithTitle:@"Save Failed" message:msg];
+        return;
+    }
+
+    [self saveVideoToPhotos:tmpPath];
+}
+
+- (void)saveVideoToPhotos:(NSString *)path {
+    NSURL *fileURL = [NSURL fileURLWithPath:path];
+
+    [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+        [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:fileURL];
+    } completionHandler:^(BOOL success, NSError *error) {
+        if (success) {
+            [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+            NSString *msg = [NSString stringWithFormat:@"Video saved: %@", self.filename];
+            [self finishWithTitle:@"Saved to Photos" message:msg];
+            return;
+        }
+        [self saveVideoToDocuments:path];
+    }];
+}
+
+- (void)saveVideoToDocuments:(NSString *)path {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,
+                                                          NSUserDomainMask, YES);
+    NSString *docs = paths.firstObject ?: NSTemporaryDirectory();
+    NSString *dir = [docs stringByAppendingPathComponent:@"SafariTool"];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+
+    NSString *dst = [dir stringByAppendingPathComponent:self.filename];
+    NSError *moveErr = nil;
+    [fm moveItemAtPath:path toPath:dst error:&moveErr];
+
+    if (moveErr) {
+        [self finishWithTitle:@"Save Failed" message:moveErr.localizedDescription];
+    } else {
+        NSString *msg = [NSString stringWithFormat:@"Saved as %@", self.filename];
+        [self finishWithTitle:@"Saved to Files" message:msg];
+    }
+}
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didCompleteWithError:(NSError *)error {
+    if (!error) return;
+    if (self.cancelled || self.finished) return;
+    if (error.code == NSURLErrorCancelled) return;
+    self.finished = YES;
+    NSString *msg = error.localizedDescription ?: @"Unknown error";
+    [self finishWithTitle:@"Download Failed" message:msg];
+}
+
+- (void)cancel {
+    if (self.cancelled) return;
+    self.cancelled = YES;
+    [[STFloatingProgress shared] hide];
+    if (self.progressAlert) {
+        [self.progressAlert dismissViewControllerAnimated:YES completion:^{
+            self.progressAlert = nil;
+        }];
+    }
+    if (self.session) {
+        [self.session invalidateAndCancel];
+        self.session = nil;
+    }
+    [self recreateSession];
+}
+
+@end
+
+static BOOL ST_IsHLSURL(NSString *urlString) {
+    if (urlString.length == 0) return NO;
+    NSString *lower = urlString.lowercaseString;
+    if ([lower containsString:@".m3u8"]) return YES;
+    if ([lower containsString:@"/hls/"]) return YES;
+    return NO;
+}
+
+@interface STMessageHandler : NSObject <WKScriptMessageHandler>
+@end
+
+@implementation STMessageHandler
+
+- (void)userContentController:(WKUserContentController *)userContentController
+      didReceiveScriptMessage:(WKScriptMessage *)message {
+    @try {
+        if (![message.name isEqualToString:@"stDownload"]) return;
+
+        NSDictionary *body = message.body;
+        NSString *urlStr = body[@"url"];
+        NSString *referer = body[@"referer"];
+        NSString *ua = body[@"ua"];
+        BOOL isBlob = [body[@"blob"] boolValue];
+        NSArray *streams = body[@"streams"];
+        WKWebView *wv = message.webView;
+
+        if (![referer isKindOfClass:[NSString class]]) referer = @"";
+        if (![ua isKindOfClass:[NSString class]]) ua = @"";
+
+        if (isBlob || !urlStr || urlStr.length == 0 || [urlStr hasPrefix:@"blob:"]) {
+            [self handleStreamingChoice:streams referer:referer ua:ua webView:wv];
+            return;
+        }
+
+        if (![urlStr isKindOfClass:[NSString class]]) return;
+
+        if (ST_IsHLSURL(urlStr)) {
+            [[STHLSDownloader shared] startWithURL:urlStr
+                                            referer:referer
+                                                 ua:ua
+                                            webView:wv];
+        } else {
+            [[STDownloadManager shared] startDownload:urlStr referer:referer ua:ua];
+        }
+    } @catch (NSException *e) {
+        NSLog(@"[SafariTool] Exception: %@", e);
+    }
+}
+
+- (void)handleStreamingChoice:(NSArray *)streams
+                     referer:(NSString *)referer
+                          ua:(NSString *)ua
+                     webView:(WKWebView *)wv {
+    NSMutableArray *valid = [NSMutableArray array];
+    if ([streams isKindOfClass:[NSArray class]]) {
+        for (id s in streams) {
+            if ([s isKindOfClass:[NSString class]] && [s length] > 0) {
+                [valid addObject:s];
+            }
+        }
+    }
+
+    if (valid.count == 0) {
+        ST_ShowResultAlert(@"No stream captured",
+                           @"Please PLAY the video for 2-3 seconds first, then press download again.");
+        return;
+    }
+
+    if (valid.count == 1) {
+        [[STHLSDownloader shared] startWithURL:valid.firstObject
+                                        referer:referer
+                                             ua:ua
+                                        webView:wv];
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *top = ST_SafeTopViewController();
+        if (!top) return;
+        if (top.presentedViewController) return;
+
+        UIAlertController *sheet =
+            [UIAlertController alertControllerWithTitle:@"Choose a stream"
+                                                message:@"Try option 1 first:"
+                                         preferredStyle:UIAlertControllerStyleActionSheet];
+
+        NSInteger idx = 1;
+        for (NSString *url in valid) {
+            NSString *shortName = url.lastPathComponent;
+            if (shortName.length > 50) shortName = [shortName substringToIndex:50];
+            NSString *title = [NSString stringWithFormat:@"%ld. %@", (long)idx, shortName];
+            [sheet addAction:[UIAlertAction actionWithTitle:title
+                                                      style:UIAlertActionStyleDefault
+                                                    handler:^(UIAlertAction *action) {
+                [[STHLSDownloader shared] startWithURL:url
+                                                referer:referer
+                                                     ua:ua
+                                                webView:wv];
+            }]];
+            idx++;
+        }
+
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                                  style:UIAlertActionStyleCancel
+                                                handler:nil]];
+
+        if (sheet.popoverPresentationController) {
+            sheet.popoverPresentationController.sourceView = top.view;
+            sheet.popoverPresentationController.sourceRect =
+                CGRectMake(top.view.bounds.size.width / 2.0,
+                           top.view.bounds.size.height / 2.0, 1, 1);
+        }
+        [top presentViewController:sheet animated:YES completion:nil];
+    });
+}
+
+@end
+
+static void ST_InstallScripts(WKWebView *wv) {
+    @try {
+        WKUserContentController *ucc = wv.configuration.userContentController;
+        if (!ucc) return;
+        if (objc_getAssociatedObject(ucc, &kSTInstalledKey)) return;
+        objc_setAssociatedObject(ucc, &kSTInstalledKey, @YES,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        WKUserScript *captureScript =
+            [[WKUserScript alloc] initWithSource:ST_StreamCaptureJS()
+                                   injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                forMainFrameOnly:NO];
+        [ucc addUserScript:captureScript];
+
+        if (ST_Pref(@"SafariTool_ForceCopy", YES)) {
+            WKUserScript *script =
+                [[WKUserScript alloc] initWithSource:ST_ForceCopyJS()
+                                       injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                    forMainFrameOnly:NO];
+            [ucc addUserScript:script];
+        }
+
+        if (ST_Pref(@"SafariTool_DownloadButton", YES)) {
+            STMessageHandler *handler = [[STMessageHandler alloc] init];
+            [ucc addScriptMessageHandler:handler name:@"stDownload"];
+            objc_setAssociatedObject(ucc, &kSTMessageHandlerKey, handler,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+            WKUserScript *script =
+                [[WKUserScript alloc] initWithSource:ST_VideoDetectorJS()
+                                       injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
+                                    forMainFrameOnly:NO];
+            [ucc addUserScript:script];
+        }
+    } @catch (NSException *e) {}
+}
+
+%group STWebKit
+
+%hook WKWebView
+
+- (id)initWithFrame:(CGRect)frame configuration:(id)configuration {
+    id r = %orig;
+    if (r) ST_InstallScripts((WKWebView *)r);
+    return r;
+}
+
+- (void)setNavigationDelegate:(id<WKNavigationDelegate>)delegate {
+    %orig;
+    if (delegate) ST_PatchDelegateClass([(NSObject *)delegate class]);
+}
+
+%end
+
+%end
+
+%ctor {
+    @autoreleasepool {
+        if (![[[NSProcessInfo processInfo] processName] isEqualToString:@"MobileSafari"]) return;
+        if (![[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){16, 0, 0}]) return;
+        if (!objc_getClass("WKWebView")) return;
+        if (!ST_GuardBegin()) return;
+        if (!ST_Pref(@"SafariTool_Enabled", YES)) return;
+        %init(STWebKit);
+    }
+}
