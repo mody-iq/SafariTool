@@ -4,7 +4,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.8.3";
+static NSString *const kSTGuardVersion = @"0.8.4";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -592,6 +592,29 @@ static NSString *ST_VideoDetectorJS(void) {
     return inst;
 }
 
+- (void)finishWithTitle:(NSString *)title message:(NSString *)message {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[STFloatingProgress shared] hide];
+        UIAlertController *alert = self.progressAlert;
+        self.progressAlert = nil;
+        if (alert) {
+            [alert dismissViewControllerAnimated:YES completion:^{
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                             (int64_t)(0.4 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    ST_ShowResultAlert(title, message);
+                });
+            }];
+        } else {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                         (int64_t)(0.3 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                ST_ShowResultAlert(title, message);
+            });
+        }
+    });
+}
+
 - (void)startWithURL:(NSString *)urlString
              referer:(NSString *)referer
                   ua:(NSString *)ua
@@ -650,18 +673,8 @@ static NSString *ST_VideoDetectorJS(void) {
                                                     options:nil];
     if (!self.task) {
         [self cleanupSession];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (self.progressAlert) {
-                [self.progressAlert dismissViewControllerAnimated:YES completion:^{
-                    self.progressAlert = nil;
-                    ST_ShowResultAlert(@"HLS Download Failed",
-                                       @"Could not create download task.");
-                }];
-            } else {
-                ST_ShowResultAlert(@"HLS Download Failed",
-                                   @"Could not create download task.");
-            }
-        });
+        [self finishWithTitle:@"HLS Download Failed"
+                      message:@"Could not create download task."];
         return;
     }
 
@@ -778,16 +791,16 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
 
     NSString *dst = [dir stringByAppendingPathComponent:
                      [NSString stringWithFormat:@"%@.movpkg", self.filename]];
-    [fm removeItemAtPath:dst error:nil];
+    [fm removeItemAtPath:dst [ error:nil];
 
-    NSError *moveErr = nil;
-    BOOL moved = [fm moveItemAtURL:location
-                             toURL:[NSURL fileURLWithPath:dst]
+    NSError *moveErralert = nil;
+    BOOL moved = [ dismissfm moveItemAtURL:location
+                            ViewController toURL:[NSURL fileURLWithPath:dstAn]
                              error:&moveErr];
 
-    NSString *resultTitle;
+    NSStringimated *resultTitle;
     NSString *resultMsg;
-    if (moved) {
+    if (m:oved) {
         resultTitle = @"Saved to Files";
         resultMsg = [NSString stringWithFormat:
                      @"HLS video saved.\n\nFile: %@.movpkg", self.filename];
@@ -797,26 +810,7 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
     }
 
     [self cleanupSession];
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [[STFloatingProgress shared] hide];
-        if (self.progressAlert) {
-            [self.progressAlert dismissViewControllerAnimated:YES completion:^{
-                self.progressAlert = nil;
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                             (int64_t)(0.3 * NSEC_PER_SEC)),
-                               dispatch_get_main_queue(), ^{
-                    ST_ShowResultAlert(resultTitle, resultMsg);
-                }];
-            }];
-        } else {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                         (int64_t)(0.2 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                ST_ShowResultAlert(resultTitle, resultMsg);
-            });
-        }
-    });
+    [self finishWithTitle:resultTitle message:resultMsg];
 }
 
 - (void)URLSession:(NSURLSession *)session
@@ -831,27 +825,8 @@ didCompleteWithError:(NSError *)error {
 
     [self cleanupSession];
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [[STFloatingProgress shared] hide];
-        if (self.progressAlert) {
-            [self.progressAlert dismissViewControllerAnimated:YES completion:^{
-                self.progressAlert = nil;
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                             (int64_t)(0.3 * NSEC_PER_SEC)),
-                               dispatch_get_main_queue(), ^{
-                    ST_ShowResultAlert(@"HLS Download Failed",
-                                       error.localizedDescription ?: @"Unknown error");
-                }];
-            }];
-        } else {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                         (int64_t)(0.2 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                ST_ShowResultAlert(@"HLS Download Failed",
-                                   error.localizedDescription ?: @"Unknown error");
-            });
-        }
-    });
+    NSString *msg = error.localizedDescription ?: @"Unknown error";
+    [self finishWithTitle:@"HLS Download Failed" message:msg];
 }
 
 - (void)cancel {
@@ -910,6 +885,29 @@ didCompleteWithError:(NSError *)error {
     cfg.timeoutIntervalForRequest = 30.0;
     cfg.timeoutIntervalForResource = 3600.0;
     self.session = [NSURLSession sessionWithConfiguration:cfg delegate:self delegateQueue:nil];
+}
+
+- (void)finishWithTitle:(NSString *)title message:(NSString *)message {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[STFloatingProgress shared] hide];
+        UIAlertController *alert = self.progressAlert;
+        self.progressAlert = nil;
+        if (alert) {
+           YES completion:^{
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                             (int64_t)(0.4 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    ST_ShowResultAlert(title, message);
+                });
+            }];
+        } else {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                         (int64_t)(0.3 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                ST_ShowResultAlert(title, message);
+            });
+        }
+    });
 }
 
 - (void)startDownload:(NSString *)urlString referer:(NSString *)referer ua:(NSString *)ua {
@@ -1032,17 +1030,7 @@ didFinishDownloadingToURL:(NSURL *)location {
                               error:&copyErr];
     if (!copied) {
         NSString *msg = copyErr.localizedDescription ?: @"Could not copy";
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [[STFloatingProgress shared] hide];
-            if (self.progressAlert) {
-                [self.progressAlert dismissViewControllerAnimated:YES completion:^{
-                    self.progressAlert = nil;
-                    ST_ShowResultAlert(@"Save Failed", msg);
-                }];
-            } else {
-                ST_ShowResultAlert(@"Save Failed", msg);
-            }
-        });
+        [self finishWithTitle:@"Save Failed" message:msg];
         return;
     }
 
@@ -1057,21 +1045,8 @@ didFinishDownloadingToURL:(NSURL *)location {
     } completionHandler:^(BOOL success, NSError *error) {
         if (success) {
             [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [[STFloatingProgress shared] hide];
-                if (self.progressAlert) {
-                    [self.progressAlert dismissViewControllerAnimated:YES completion:^{
-                        self.progressAlert = nil;
-                        ST_ShowResultAlert(@"Saved to Photos",
-                                           [NSString stringWithFormat:@"Video saved: %@",
-                                            self.filename]);
-                    }];
-                } else {
-                    ST_ShowResultAlert(@"Saved to Photos",
-                                       [NSString stringWithFormat:@"Video saved: %@",
-                                        self.filename]);
-                }
-            });
+            NSString *msg = [NSString stringWithFormat:@"Video saved: %@", self.filename];
+            [self finishWithTitle:@"Saved to Photos" message:msg];
             return;
         }
         [self saveVideoToDocuments:path];
@@ -1091,27 +1066,12 @@ didFinishDownloadingToURL:(NSURL *)location {
     NSError *moveErr = nil;
     [fm moveItemAtPath:path toPath:dst error:&moveErr];
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [[STFloatingProgress shared] hide];
-        if (self.progressAlert) {
-            [self.progressAlert dismissViewControllerAnimated:YES completion:^{
-                self.progressAlert = nil;
-                if (moveErr) {
-                    ST_ShowResultAlert(@"Save Failed", moveErr.localizedDescription);
-                } else {
-                    ST_ShowResultAlert(@"Saved to Files",
-                                       [NSString stringWithFormat:@"Saved as %@", self.filename]);
-                }
-            }];
-        } else {
-            if (moveErr) {
-                ST_ShowResultAlert(@"Save Failed", moveErr.localizedDescription);
-            } else {
-                ST_ShowResultAlert(@"Saved to Files",
-                                   [NSString stringWithFormat:@"Saved as %@", self.filename]);
-            }
-        }
-    });
+    if (moveErr) {
+        [self finishWithTitle:@"Save Failed" message:moveErr.localizedDescription];
+    } else {
+        NSString *msg = [NSString stringWithFormat:@"Saved as %@", self.filename];
+        [self finishWithTitle:@"Saved to Files" message:msg];
+    }
 }
 
 - (void)URLSession:(NSURLSession *)session
@@ -1123,17 +1083,7 @@ didCompleteWithError:(NSError *)error {
 
     self.finished = YES;
     NSString *msg = error.localizedDescription ?: @"Unknown error";
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [[STFloatingProgress shared] hide];
-        if (self.progressAlert) {
-            [self.progressAlert dismissViewControllerAnimated:YES completion:^{
-                self.progressAlert = nil;
-                ST_ShowResultAlert(@"Download Failed", msg);
-            }];
-        } else {
-            ST_ShowResultAlert(@"Download Failed", msg);
-        }
-    });
+    [self finishWithTitle:@"Download Failed" message:msg];
 }
 
 - (void)cancel {
