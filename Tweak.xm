@@ -407,6 +407,22 @@ static NSString *ST_VideoDetectorJS(void) {
     return js;
 }
 
+// ============================================================
+// STPassThroughView - allows touches outside to pass through
+// ============================================================
+@interface STPassThroughView : UIView
+@end
+
+@implementation STPassThroughView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *v = [super hitTest:point withEvent:event];
+    if (v == self) {
+        return nil;
+    }
+    return v;
+}
+@end
+
 @interface STFloatingView : UIView
 @property (nonatomic, strong) UILabel *label;
 @property (nonatomic, copy) void (^onTap)(void);
@@ -512,14 +528,19 @@ static NSString *ST_VideoDetectorJS(void) {
                 self.window = [[UIWindow alloc] initWithWindowScene:scene];
                 self.window.windowLevel = UIWindowLevelAlert + 100;
                 self.window.backgroundColor = [UIColor clearColor];
-                UIViewController *root = [[UIViewController alloc] init];
-                root.view.backgroundColor = [UIColor clearColor];
-                self.window.rootViewController = root;
+
+                STPassThroughView *rootView =
+                    [[STPassThroughView alloc] initWithFrame:self.window.bounds];
+                rootView.backgroundColor = [UIColor clearColor];
+                self.window.rootViewController = ({
+                    UIViewController *vc = [[UIViewController alloc] init];
+                    vc.view = rootView;
+                    vc;
+                });
             }
 
-            UIViewController *root = self.window.rootViewController;
             if (!self.view.superview) {
-                [root.view addSubview:self.view];
+                [self.window.rootViewController.view addSubview:self.view];
             }
 
             CGRect bounds = scene.coordinateSpace.bounds;
@@ -581,10 +602,7 @@ static void ST_FindVideoFileInMovpkg(NSString *movpkgPath, void (^completion)(NS
         unsigned long long size = [attrs fileSize];
 
         NSString *lower = [name lowercaseString];
-        BOOL isVideo = ([lower hasSuffix:@".mov"] ||
-                        [lower hasSuffix:@".mp4"] ||
-                        [lower hasSuffix:@".m4v"] ||
-                        [lower hasSuffix:@".fmp4"]);
+        BOOL isVideo = ([lower hasSuffix:@".mov"] || [lower hasSuffix:@".mp4"]);
 
         if (!isVideo) {
             BOOL isDir = NO;
@@ -626,6 +644,7 @@ static void ST_FindVideoFileInMovpkg(NSString *movpkgPath, void (^completion)(NS
 @property (nonatomic, assign) BOOL inBackgroundMode;
 @property (nonatomic, assign) BOOL cancelled;
 @property (nonatomic, assign) BOOL finished;
+@property (nonatomic, strong) NSTimer *conversionTimeout;
 @end
 
 @implementation STHLSDownloader
@@ -641,6 +660,8 @@ static void ST_FindVideoFileInMovpkg(NSString *movpkgPath, void (^completion)(NS
 
 - (void)finishWithTitle:(NSString *)title message:(NSString *)message {
     dispatch_async(dispatch_get_main_queue(), ^{
+        [self.conversionTimeout invalidate];
+        self.conversionTimeout = nil;
         [[STFloatingProgress shared] hide];
         UIAlertController *alert = self.progressAlert;
         self.progressAlert = nil;
@@ -864,9 +885,22 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
 }
 
 - (void)convertMovpkgAndSaveToPhotos:(NSString *)movpkgPath {
+    __weak STHLSDownloader *weakSelf = self;
+
+    self.conversionTimeout =
+        [NSTimer scheduledTimerWithTimeInterval:90.0
+                                         target:self
+                                       selector:@selector(conversionTimeoutFired:)
+                                       userInfo:movpkgPath
+                                        repeats:NO];
+
     ST_FindVideoFileInMovpkg(movpkgPath, ^(NSString *videoPath) {
+        STHLSDownloader *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        if (strongSelf.cancelled) return;
+
         if (!videoPath) {
-            [self fallbackToPhotosFromMovpkg:movpkgPath];
+            [strongSelf conversionFailedSaveMovpkg:movpkgPath];
             return;
         }
 
@@ -876,17 +910,29 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
         [asset loadValuesAsynchronouslyForKeys:@[@"tracks", @"duration"]
                              completionHandler:^{
             dispatch_async(dispatch_get_main_queue(), ^{
+                STHLSDownloader *s2 = weakSelf;
+                if (!s2) return;
+                if (s2.cancelled) return;
+
                 NSError *err = nil;
                 AVKeyValueStatus status = [asset statusOfValueForKey:@"tracks" error:&err];
                 if (status != AVKeyValueStatusLoaded) {
-                    [self fallbackToPhotosFromMovpkg:movpkgPath];
+                    [s2 conversionFailedSaveMovpkg:movpkgPath];
                     return;
                 }
 
-                [self runExportWithAsset:asset movpkgPath:movpkgPath];
+                [s2 runExportWithAsset:asset movpkgPath:movpkgPath];
             });
         }];
     });
+}
+
+- (void)conversionTimeoutFired:(NSTimer *)timer {
+    if (self.cancelled || self.finished) return;
+
+    NSString *movpkgPath = timer.userInfo;
+    NSLog(@"[SafariTool] Conversion timeout - saving movpkg as-is");
+    [self conversionFailedSaveMovpkg:movpkgPath];
 }
 
 - (void)runExportWithAsset:(AVAsset *)asset movpkgPath:(NSString *)movpkgPath {
@@ -907,7 +953,7 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
     }
 
     if (!preset) {
-        [self fallbackToPhotosFromMovpkg:movpkgPath];
+        [self conversionFailedSaveMovpkg:movpkgPath];
         return;
     }
 
@@ -923,20 +969,25 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
     } else if (supported.count > 0) {
         session.outputFileType = supported.firstObject;
     } else {
-        [self fallbackToPhotosFromMovpkg:movpkgPath];
+        [self conversionFailedSaveMovpkg:movpkgPath];
         return;
     }
 
     session.shouldOptimizeForNetworkUse = YES;
 
+    __weak STHLSDownloader *weakSelf = self;
     [session exportAsynchronouslyWithCompletionHandler:^{
         dispatch_async(dispatch_get_main_queue(), ^{
+            STHLSDownloader *strongSelf = weakSelf;
+            if (!strongSelf) return;
+            if (strongSelf.cancelled) return;
+
             if (session.status == AVAssetExportSessionStatusCompleted) {
-                [self saveMP4ToPhotos:outPath movpkgPath:movpkgPath];
+                [strongSelf saveMP4ToPhotos:outPath movpkgPath:movpkgPath];
             } else {
                 NSLog(@"[SafariTool] Conversion failed: %@", session.error);
                 [[NSFileManager defaultManager] removeItemAtPath:outPath error:nil];
-                [self fallbackToPhotosFromMovpkg:movpkgPath];
+                [strongSelf conversionFailedSaveMovpkg:movpkgPath];
             }
         });
     }];
@@ -944,18 +995,22 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
 
 - (void)saveMP4ToPhotos:(NSString *)mp4Path movpkgPath:(NSString *)movpkgPath {
     NSURL *fileURL = [NSURL fileURLWithPath:mp4Path];
+    __weak STHLSDownloader *weakSelf = self;
 
     [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
         [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:fileURL];
     } completionHandler:^(BOOL success, NSError *error) {
+        STHLSDownloader *strongSelf = weakSelf;
+        if (!strongSelf) return;
+
         if (success) {
             [[NSFileManager defaultManager] removeItemAtPath:mp4Path error:nil];
             [[NSFileManager defaultManager] removeItemAtPath:movpkgPath error:nil];
-            NSString *msg = [NSString stringWithFormat:@"Video saved to Photos:\n%@", self.filename];
-            [self finishWithTitle:@"Saved to Photos" message:msg];
+            NSString *msg = [NSString stringWithFormat:@"Video saved to Photos:\n%@", strongSelf.filename];
+            [strongSelf finishWithTitle:@"Saved to Photos" message:msg];
         } else {
             NSLog(@"[SafariTool] Photos save failed: %@", error);
-            [self fallbackToSaveMP4ToFiles:mp4Path movpkgPath:movpkgPath];
+            [strongSelf fallbackToSaveMP4ToFiles:mp4Path movpkgPath:movpkgPath];
         }
     }];
 }
@@ -985,27 +1040,9 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
     }
 }
 
-- (void)fallbackToPhotosFromMovpkg:(NSString *)movpkgPath {
-    NSURL *movpkgURL = [NSURL fileURLWithPath:movpkgPath];
-    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:movpkgURL options:nil];
-
-    [asset loadValuesAsynchronouslyForKeys:@[@"tracks", @"duration"]
-                         completionHandler:^{
-        dispatch_async(dispatch_get_main_queue(), ^{
-            NSError *err = nil;
-            AVKeyValueStatus status = [asset statusOfValueForKey:@"tracks" error:&err];
-            if (status != AVKeyValueStatusLoaded) {
-                [self keepMovpkgInFiles:movpkgPath];
-                return;
-            }
-            [self runExportWithAsset:asset movpkgPath:movpkgPath];
-        });
-    }];
-}
-
-- (void)keepMovpkgInFiles:(NSString *)movpkgPath {
+- (void)conversionFailedSaveMovpkg:(NSString *)movpkgPath {
     NSString *msg = [NSString stringWithFormat:
-                     @"HLS video saved as .movpkg.\n\nCould not convert to MP4.\n\nFile: %@.movpkg",
+                     @"HLS video saved as .movpkg.\n\nCould not convert to MP4 (took too long or failed).\n\nFile: %@.movpkg\n\nUse VLC or similar app to play it.",
                      self.filename];
     [self finishWithTitle:@"Saved to Files" message:msg];
 }
@@ -1026,6 +1063,8 @@ didCompleteWithError:(NSError *)error {
 - (void)cancel {
     if (self.cancelled) return;
     self.cancelled = YES;
+    [self.conversionTimeout invalidate];
+    self.conversionTimeout = nil;
     [[STFloatingProgress shared] hide];
     if (self.progressAlert) {
         [self.progressAlert dismissViewControllerAnimated:YES completion:^{
