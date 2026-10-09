@@ -3,13 +3,12 @@
 #import <Photos/Photos.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.5.0";
+static NSString *const kSTGuardVersion = @"0.5.1";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
 static char kSTInstalledKey;
 static char kSTMessageHandlerKey;
-static char kSTDownloadsHandlerKey;
 
 typedef void (^STDecisionHandler)(WKNavigationActionPolicy, WKWebpagePreferences *);
 
@@ -70,15 +69,15 @@ static UIViewController *ST_TopViewController(void) {
 }
 
 static void ST_ShowResultAlert(NSString *title, NSString *message) {
-    dispatch)_async( {
-dispatch_get_main_queue(), ^{
+    dispatch_async(dispatch_get_main_queue(), ^{
         UIViewController *top = ST_TopViewController();
         if (!top) {
             return;
         }
-        UIAlertController *alert = [UI   AlertController alertControllerWithTitle:title
-                                                                       message:message
-                                                                preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertController *alert =
+            [UIAlertController alertControllerWithTitle:title
+                                                message:message
+                                         preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"OK"
                                                   style:UIAlertActionStyleDefault
                                                 handler:nil]];
@@ -117,7 +116,8 @@ static BOOL ST_GuardBegin(void) {
         [std setBool:YES forKey:@"STPending"];
         [std synchronize];
 
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kSTSurviveSeconds * NSEC_PER_SEC)),
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                     (int64_t)(kSTSurviveSeconds * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             NSUserDefaults *s = [NSUserDefaults standardUserDefaults];
             [s setBool:NO forKey:@"STPending"];
@@ -130,7 +130,8 @@ static BOOL ST_GuardBegin(void) {
     }
 }
 
-static BOOL ST_DesktopEffective(void @try {
+static BOOL ST_DesktopEffective(void) {
+    @try {
         id ov = [[NSUserDefaults standardUserDefaults] objectForKey:@"STDesktopOverride"];
         if ([ov respondsToSelector:@selector(boolValue)]) {
             return [ov boolValue];
@@ -169,13 +170,14 @@ static void ST_PatchDelegateClass(Class cls) {
     }
 
     IMP newImp = imp_implementationWithBlock(
-        ^(id self_, WKWebView *wv, WKNavigationAction *action, WKWebpagePreferences *prefs,
-          STDecisionHandler handler) {
+        ^(id self_, WKWebView *wv, WKNavigationAction *action,
+          WKWebpagePreferences *prefs, STDecisionHandler handler) {
             BOOL should = NO;
             @try {
                 BOOL isMain = (!action.targetFrame || action.targetFrame.isMainFrame);
                 NSString *scheme = [action.request.URL.scheme lowercaseString];
-                BOOL web = ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]);
+                BOOL web = ([scheme isEqualToString:@"http"] ||
+                            [scheme isEqualToString:@"https"]);
                 should = (isMain && web && ST_DesktopEffective());
             } @catch (NSException *e) {
                 should = NO;
@@ -196,13 +198,14 @@ static void ST_PatchDelegateClass(Class cls) {
                 };
             }
 
-            ((void (*)(id, SEL, WKWebView *, WKNavigationAction *, WKWebpagePreferences *,
-                       STDecisionHandler))orig)(self_, sel, wv, action, prefs, wrapped);
+            ((void (*)(id, SEL, WKWebView *, WKNavigationAction *,
+                       WKWebpagePreferences *, STDecisionHandler))orig)(
+                self_, sel, wv, action, prefs, wrapped);
         });
     class_replaceMethod(cls, sel, newImp, types);
 }
 
-// ---------- Download Records Storage ----------
+// ---------- Download Records ----------
 
 @interface STDownloadRecord : NSObject
 @property (nonatomic, copy) NSString *filename;
@@ -327,7 +330,8 @@ static void ST_PatchDelegateClass(Class cls) {
                                                   style:UITableViewStyleInsetGrouped];
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
-    self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.tableView.autoresizingMask =
+        UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [self.view addSubview:self.tableView];
 }
 
@@ -348,7 +352,8 @@ static void ST_PatchDelegateClass(Class cls) {
     return [NSString stringWithFormat:@"%lu عنصر", (unsigned long)self.records.count];
 }
 
-- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)idx {
+- (UITableViewCell *)tableView:(UITableView *)tv
+         cellForRowAtIndexPath:(NSIndexPath *)idx {
     static NSString *cellId = @"STDownloadCell";
     UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cellId];
     if (!cell) {
@@ -364,7 +369,8 @@ static void ST_PatchDelegateClass(Class cls) {
     fmt.timeStyle = NSDateFormatterShortStyle;
     NSString *dateStr = [fmt stringFromDate:d];
     NSString *typeStr = [r.type isEqualToString:@"photos"] ? @"الصور" : @"الملفات";
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"%@ • %@", dateStr, typeStr];
+    cell.detailTextLabel.text =
+        [NSString stringWithFormat:@"%@ • %@", dateStr, typeStr];
 
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return cell;
@@ -386,13 +392,16 @@ static void ST_PatchDelegateClass(Class cls) {
                                               applicationActivities:nil];
         if (avc.popoverPresentationController) {
             avc.popoverPresentationController.sourceView = tv;
-            avc.popoverPresentationController.sourceRect = [tv rectForRowAtIndexPath:idx];
+            avc.popoverPresentationController.sourceRect =
+                [tv rectForRowAtIndexPath:idx];
         }
         [self presentViewController:avc animated:YES completion:nil];
     } else if ([r.type isEqualToString:@"photos"]) {
         NSURL *url = [NSURL URLWithString:@"photos-redirect://"];
         if ([[UIApplication sharedApplication] canOpenURL:url]) {
-            [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+            [[UIApplication sharedApplication] openURL:url
+                                               options:@{}
+                                     completionHandler:nil];
         }
     } else {
         ST_ShowResultAlert(@"غير متوفر", @"لا يمكن فتح هذا العنصر.");
@@ -401,13 +410,16 @@ static void ST_PatchDelegateClass(Class cls) {
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tv
     trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)idx {
-    UIContextualAction *del = [UIContextualAction
-        contextualActionWithStyle:UIContextualActionStyleDestructive
-                            title:@"حذف"
-                          handler:^(UIContextualAction *action, UIView *sourceView, void (^completion)(BOOL)) {
+    UIContextualAction *del =
+        [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
+                                                title:@"حذف"
+                                              handler:^(UIContextualAction *action,
+                                                        UIView *sourceView,
+                                                        void (^completion)(BOOL)) {
         [[STDownloadsManager shared] removeRecordAtIndex:idx.row];
         [self.records removeObjectAtIndex:idx.row];
-        [tv deleteRowsAtIndexPaths:@[idx] withRowAnimation:UITableViewRowAnimationAutomatic];
+        [tv deleteRowsAtIndexPaths:@[idx]
+                  withRowAnimation:UITableViewRowAnimationAutomatic];
         completion(YES);
     }];
     return [UISwipeActionsConfiguration configurationWithActions:@[del]];
@@ -421,10 +433,10 @@ static void ST_PatchDelegateClass(Class cls) {
     if (self.records.count == 0) {
         return;
     }
-    UIAlertController *a = [UIAlertController
-        alertControllerWithTitle:@"حذف الكل"
-                         message:@"هل أنت متأكد من حذف كل السجلات؟"
-                  preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *a =
+        [UIAlertController alertControllerWithTitle:@"حذف الكل"
+                                            message:@"هل أنت متأكد من حذف كل السجلات؟"
+                                     preferredStyle:UIAlertControllerStyleAlert];
     [a addAction:[UIAlertAction actionWithTitle:@"إلغاء"
                                           style:UIAlertActionStyleCancel
                                         handler:nil]];
@@ -480,7 +492,6 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"(function(){"];
         [s appendString:@"if(window.__stVideoDetector){return;}"];
         [s appendString:@"window.__stVideoDetector=true;"];
-
         [s appendString:@"function addDownloadsButton(){"];
         [s appendString:@"if(document.getElementById('st-dm-btn')){return;}"];
         [s appendString:@"var b=document.createElement('div');"];
@@ -494,7 +505,6 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"var b=document.getElementById('st-dm-btn');"];
         [s appendString:@"if(b){b.remove();}"];
         [s appendString:@"}"];
-
         [s appendString:@"var btn=null;var lastUrl=null;"];
         [s appendString:@"function pickBestSource(v){"];
         [s appendString:@"try{"];
@@ -604,7 +614,12 @@ static NSString *ST_VideoDetectorJS(void) {
 
     self.currentURLString = urlString;
 
+    __weak STDownloadManager *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
+        STDownloadManager *strongSelf = weakSelf;
+        if (!strongSelf) {
+            return;
+        }
         UIViewController *top = ST_TopViewController();
         if (!top) {
             return;
@@ -614,16 +629,17 @@ static NSString *ST_VideoDetectorJS(void) {
             name = @"video";
         }
         NSString *msg = [NSString stringWithFormat:@"Downloading %@...\n\n0%%", name];
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"SafariTool"
-                                                                       message:msg
-                                                                preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertController *alert =
+            [UIAlertController alertControllerWithTitle:@"SafariTool"
+                                                message:msg
+                                         preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
                                                   style:UIAlertActionStyleCancel
                                                 handler:^(UIAlertAction *action) {
-            [self.session invalidateAndCancel];
-            [self recreateSession];
+            [strongSelf.session invalidateAndCancel];
+            [strongSelf recreateSession];
         }]];
-        self.progressAlert = alert;
+        strongSelf.progressAlert = alert;
         [top presentViewController:alert animated:YES completion:nil];
     });
 
@@ -644,7 +660,8 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
     if (name.length == 0) {
         name = @"video";
     }
-    NSString *msg = [NSString stringWithFormat:@"Downloading %@...\n\n%.0f%%", name, progress * 100.0];
+    NSString *msg = [NSString stringWithFormat:@"Downloading %@...\n\n%.0f%%",
+                     name, progress * 100.0];
     dispatch_async(dispatch_get_main_queue(), ^{
         if (self.progressAlert) {
             self.progressAlert.message = msg;
@@ -686,25 +703,26 @@ didFinishDownloadingToURL:(NSURL *)location {
 
 - (void)saveVideoToPhotos:(NSString *)path originalName:(NSString *)name {
     NSURL *fileURL = [NSURL fileURLWithPath:path];
-    __weak typeof(self) weakSelf = self;
+    __weak STDownloadManager *weakSelf = self;
 
     [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
         [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:fileURL];
     } completionHandler:^(BOOL success, NSError *error) {
+        STDownloadManager *strongSelf = weakSelf;
         if (success) {
             [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
 
             STDownloadRecord *rec = [[STDownloadRecord alloc] init];
             rec.filename = name;
-            rec.url = weakSelf.currentURLString ?: @"";
+            rec.url = strongSelf.currentURLString ?: @"";
             rec.path = @"";
             rec.type = @"photos";
             rec.date = [[NSDate date] timeIntervalSince1970];
             [[STDownloadsManager shared] addRecord:rec];
 
             dispatch_async(dispatch_get_main_queue(), ^{
-                [weakSelf.progressAlert dismissViewControllerAnimated:YES completion:^{
-                    weakSelf.progressAlert = nil;
+                [strongSelf.progressAlert dismissViewControllerAnimated:YES completion:^{
+                    strongSelf.progressAlert = nil;
                     ST_ShowResultAlert(@"Saved to Photos",
                                        [NSString stringWithFormat:@"Video saved: %@", name]);
                 }];
@@ -713,7 +731,7 @@ didFinishDownloadingToURL:(NSURL *)location {
         }
 
         NSLog(@"[SafariTool] Photos save failed: %@", error);
-        [weakSelf saveVideoToDocuments:path originalName:name];
+        [strongSelf saveVideoToDocuments:path originalName:name];
     }];
 }
 
@@ -836,7 +854,8 @@ static void ST_InstallScripts(WKWebView *wv) {
         if (objc_getAssociatedObject(ucc, &kSTInstalledKey)) {
             return;
         }
-        objc_setAssociatedObject(ucc, &kSTInstalledKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(ucc, &kSTInstalledKey, @YES,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
         BOOL hasDownloads = [[STDownloadsManager shared] allRecords].count > 0;
         NSString *flagScript =
