@@ -3,7 +3,7 @@
 #import <Photos/Photos.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.5.1";
+static NSString *const kSTGuardVersion = @"0.5.2";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -505,6 +505,10 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"var b=document.getElementById('st-dm-btn');"];
         [s appendString:@"if(b){b.remove();}"];
         [s appendString:@"}"];
+        [s appendString:@"window.__stMaybeShowDM=function(){"];
+        [s appendString:@"if(window.__stShowDM===true){addDownloadsButton();}"];
+        [s appendString:@"else{removeDownloadsButton();}"];
+        [s appendString:@"};"];
         [s appendString:@"var btn=null;var lastUrl=null;"];
         [s appendString:@"function pickBestSource(v){"];
         [s appendString:@"try{"];
@@ -558,7 +562,7 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"}"];
         [s appendString:@"setInterval(scan,1500);"];
         [s appendString:@"scan();"];
-        [s appendString:@"if(window.__stShowDM){addDownloadsButton();}"];
+        [s appendString:@"try{window.webkit.messageHandlers.stCheckDM.postMessage({});}catch(e){}"];
         [s appendString:@"})();"];
         js = [s copy];
     });
@@ -838,6 +842,19 @@ didCompleteWithError:(NSError *)error {
             });
             return;
         }
+        if ([message.name isEqualToString:@"stCheckDM"]) {
+            WKWebView *wv = message.webView;
+            BOOL has = [[STDownloadsManager shared] allRecords].count > 0;
+            NSString *js = [NSString stringWithFormat:
+                @"window.__stShowDM=%@; if(window.__stMaybeShowDM){window.__stMaybeShowDM();}",
+                has ? @"true" : @"false"];
+            if (wv) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [wv evaluateJavaScript:js completionHandler:nil];
+                });
+            }
+            return;
+        }
     } @catch (NSException *e) {
         NSLog(@"[SafariTool] Message handler exception: %@", e);
     }
@@ -857,16 +874,6 @@ static void ST_InstallScripts(WKWebView *wv) {
         objc_setAssociatedObject(ucc, &kSTInstalledKey, @YES,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-        BOOL hasDownloads = [[STDownloadsManager shared] allRecords].count > 0;
-        NSString *flagScript =
-            [NSString stringWithFormat:@"window.__stShowDM=%@;",
-                hasDownloads ? @"true" : @"false"];
-        WKUserScript *flagUs =
-            [[WKUserScript alloc] initWithSource:flagScript
-                                   injectionTime:WKUserScriptInjectionTimeAtDocumentStart
-                                forMainFrameOnly:NO];
-        [ucc addUserScript:flagUs];
-
         if (ST_Pref(@"SafariTool_ForceCopy", YES)) {
             WKUserScript *script =
                 [[WKUserScript alloc] initWithSource:ST_ForceCopyJS()
@@ -884,6 +891,7 @@ static void ST_InstallScripts(WKWebView *wv) {
             }
             if (wantsDMBtn) {
                 [ucc addScriptMessageHandler:handler name:@"stOpenDownloads"];
+                [ucc addScriptMessageHandler:handler name:@"stCheckDM"];
             }
             objc_setAssociatedObject(ucc, &kSTMessageHandlerKey, handler,
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
