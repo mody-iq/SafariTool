@@ -68,7 +68,7 @@
             <key>label</key>
             <string>زر التنزيل</string>
             <key>footerText</key>
-            <string>عند اكتشاف فيديو في الصفحة، يظهر زر عائم لتنزيله مباشرةً إلى تطبيق الصور أو الملفات.</string>
+            <string>عند اكتشاف فيديو في الصفحة، يظهر زر عائم لتنزيله مباشرةً إلى تطبيق الصور. يدعم MP4 و HLS (.m3u8).</string>
         </dict>
         <dict>
             <key>cell</key>
@@ -77,24 +77,6 @@
             <string>إظهار زر تنزيل الفيديو</string>
             <key>key</key>
             <string>SafariTool_DownloadButton</string>
-            <key>default</key>
-            <true/>
-            <key>defaults</key>
-            <string>kCFPreferencesAnyApplication</string>
-        </dict>
-        <dict>
-            <key>cell</key>
-            <string>PSGroupCell</string>
-            <key>footerText</key>
-            <string>زر عائم في أسفل يسار الشاشة يعرض كل التنزيلات السابقة مع إمكانية المشاركة والحذف.</string>
-        </dict>
-        <dict>
-            <key>cell</key>
-            <string>PSSwitchCell</string>
-            <key>label</key>
-            <string>إظهار مدير التنزيلات</string>
-            <key>key</key>
-            <string>SafariTool_DownloadsButton</string>
             <key>default</key>
             <true/>
             <key>defaults</key>
