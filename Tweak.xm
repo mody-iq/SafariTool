@@ -4,7 +4,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.6.0";
+static NSString *const kSTGuardVersion = @"0.7.1";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -242,7 +242,7 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"(function(){"];
         [s appendString:@"if(window.__stVideoDetector){return;}"];
         [s appendString:@"window.__stVideoDetector=true;"];
-        [s appendString:@"var btn=null;var lastUrl=null;"];
+        [s appendString:@"var ID_ATTR='data-st-id';"];
         [s appendString:@"function isHLS(u){"];
         [s appendString:@"if(!u)return false;"];
         [s appendString:@"var l=u.toLowerCase();"];
@@ -276,40 +276,92 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"}catch(e){}"];
         [s appendString:@"return null;"];
         [s appendString:@"}"];
-        [s appendString:@"function showButton(url){"];
-        [s appendString:@"if(btn&&lastUrl===url){return;}"];
-        [s appendString:@"if(btn){btn.remove();btn=null;}"];
-        [s appendString:@"lastUrl=url;"];
-        [s appendString:@"var hls=isHLS(url);"];
+        [s appendString:@"function ensureId(v){"];
+        [s appendString:@"var id=v.getAttribute(ID_ATTR);"];
+        [s appendString:@"if(!id){"];
+        [s appendString:@"id='st'+Math.random().toString(36).substr(2,9);"];
+        [s appendString:@"v.setAttribute(ID_ATTR,id);"];
+        [s appendString:@"}"];
+        [s appendString:@"return id;"];
+        [s appendString:@"}"];
+        [s appendString:@"var svgArrow='<svg width=\"13\" height=\"13\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"display:block;\"><path d=\"M12 4v14M5 11l7 7 7-7\"/></svg>';"];
+        [s appendString:@"function makeButton(id,url,hls){"];
+        [s appendString:@"var btn=document.getElementById('st-btn-'+id);"];
+        [s appendString:@"if(!btn){"];
         [s appendString:@"btn=document.createElement('div');"];
-        [s appendString:@"btn.id='st-dl-btn';"];
-        [s appendString:@"if(hls){"];
-        [s appendString:@"btn.style.cssText='position:fixed;bottom:100px;right:20px;z-index:2147483647;background:#FF9500;color:#fff;padding:12px 20px;border-radius:25px;font-size:16px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.3);cursor:pointer;font-family:-apple-system;';"];
-        [s appendString:@"btn.textContent='Download HLS';"];
-        [s appendString:@"}else{"];
-        [s appendString:@"btn.style.cssText='position:fixed;bottom:100px;right:20px;z-index:2147483647;background:#007AFF;color:#fff;padding:12px 20px;border-radius:25px;font-size:16px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.3);cursor:pointer;font-family:-apple-system;';"];
-        [s appendString:@"btn.textContent='Download Video';"];
+        [s appendString:@"btn.id='st-btn-'+id;"];
+        [s appendString:@"btn.setAttribute('data-st-btn','1');"];
+        [s appendString:@"btn.style.cssText='position:fixed;z-index:2147483647;padding:7px 13px;border-radius:18px;box-shadow:0 2px 8px rgba(0,0,0,0.35);cursor:pointer;font-size:13px;font-weight:600;color:#fff;font-family:-apple-system;user-select:none;-webkit-user-select:none;display:flex;align-items:center;gap:5px;white-space:nowrap;line-height:1;letter-spacing:0.2px;';"];
+        [s appendString:@"btn.innerHTML=svgArrow+'<span>download</span>';"];
+        [s appendString:@"btn.addEventListener('click',function(e){"];
+        [s appendString:@"e.stopPropagation();e.preventDefault();"];
+        [s appendString:@"var u=btn.getAttribute('data-st-url');"];
+        [s appendString:@"if(!u)return;"];
+        [s appendString:@"btn.style.opacity='0.5';"];
+        [s appendString:@"btn.innerHTML='<span style=\"font-size:11px;\">...</span>';"];
+        [s appendString:@"try{window.webkit.messageHandlers.stDownload.postMessage({url:u,referer:window.location.href,ua:navigator.userAgent});}catch(err){}"];
+        [s appendString:@"},true);"];
+        [s appendString:@"(document.body||document.documentElement).appendChild(btn);"];
         [s appendString:@"}"];
-        [s appendString:@"btn.onclick=function(){try{"];
-        [s appendString:@"btn.textContent='Starting...';"];
-        [s appendString:@"window.webkit.messageHandlers.stDownload.postMessage({url:lastUrl});"];
-        [s appendString:@"}catch(e){}};"];
-        [s appendString:@"document.body.appendChild(btn);"];
+        [s appendString:@"btn.style.background=hls?'#FF9500':'#007AFF';"];
+        [s appendString:@"btn.setAttribute('data-st-url',url);"];
+        [s appendString:@"return btn;"];
         [s appendString:@"}"];
-        [s appendString:@"function hideButton(){if(btn){btn.remove();btn=null;}lastUrl=null;}"];
+        [s appendString:@"function positionButton(btn,v){"];
+        [s appendString:@"try{"];
+        [s appendString:@"var r=v.getBoundingClientRect();"];
+        [s appendString:@"if(r.width<80||r.height<80){btn.style.display='none';return;}"];
+        [s appendString:@"if(r.bottom<0||r.top>window.innerHeight){btn.style.display='none';return;}"];
+        [s appendString:@"btn.style.display='flex';"];
+        [s appendString:@"var bw=btn.offsetWidth||110;"];
+        [s appendString:@"var bh=btn.offsetHeight||32;"];
+        [s appendString:@"var top=r.top+8;"];
+        [s appendString:@"if(top<8)top=8;"];
+        [s appendString:@"if(top+bh>window.innerHeight-8)top=window.innerHeight-bh-8;"];
+        [s appendString:@"var left=r.right-bw-8;"];
+        [s appendString:@"if(left<8)left=8;"];
+        [s appendString:@"if(left+bw>window.innerWidth-8)left=window.innerWidth-bw-8;"];
+        [s appendString:@"btn.style.top=top+'px';"];
+        [s appendString:@"btn.style.left=left+'px';"];
+        [s appendString:@"}catch(e){btn.style.display='none';}"];
+        [s appendString:@"}"];
+        [s appendString:@"var activeIds={};"];
         [s appendString:@"function scan(){"];
+        [s appendString:@"activeIds={};"];
         [s appendString:@"try{"];
         [s appendString:@"var videos=document.querySelectorAll('video');"];
-        [s appendString:@"if(videos.length===0){hideButton();return;}"];
-        [s appendString:@"var found=null;"];
         [s appendString:@"for(var i=0;i<videos.length;i++){"];
-        [s appendString:@"found=pickBestSource(videos[i]);"];
-        [s appendString:@"if(found)break;"];
+        [s appendString:@"var v=videos[i];"];
+        [s appendString:@"var url=pickBestSource(v);"];
+        [s appendString:@"if(!url)continue;"];
+        [s appendString:@"var id=ensureId(v);"];
+        [s appendString:@"activeIds[id]=true;"];
+        [s appendString:@"var btn=makeButton(id,url,isHLS(url));"];
+        [s appendString:@"positionButton(btn,v);"];
         [s appendString:@"}"];
-        [s appendString:@"if(found){showButton(found);}else{hideButton();}"];
+        [s appendString:@"var existing=document.querySelectorAll('[data-st-btn]');"];
+        [s appendString:@"for(var j=0;j<existing.length;j++){"];
+        [s appendString:@"var b=existing[j];"];
+        [s appendString:@"var bid=b.id.replace('st-btn-','');"];
+        [s appendString:@"if(!activeIds[bid]){b.remove();}"];
+        [s appendString:@"}"];
         [s appendString:@"}catch(e){}"];
         [s appendString:@"}"];
-        [s appendString:@"setInterval(scan,1500);"];
+        [s appendString:@"function onScrollOrResize(){"];
+        [s appendString:@"try{"];
+        [s appendString:@"var videos=document.querySelectorAll('video');"];
+        [s appendString:@"for(var i=0;i<videos.length;i++){"];
+        [s appendString:@"var v=videos[i];"];
+        [s appendString:@"var id=v.getAttribute(ID_ATTR);"];
+        [s appendString:@"if(!id)continue;"];
+        [s appendString:@"var b=document.getElementById('st-btn-'+id);"];
+        [s appendString:@"if(b)positionButton(b,v);"];
+        [s appendString:@"}"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"}"];
+        [s appendString:@"window.addEventListener('scroll',onScrollOrResize,true);"];
+        [s appendString:@"window.addEventListener('resize',onScrollOrResize,true);"];
+        [s appendString:@"setInterval(scan,1000);"];
         [s appendString:@"scan();"];
         [s appendString:@"})();"];
         js = [s copy];
@@ -321,6 +373,8 @@ static NSString *ST_VideoDetectorJS(void) {
 @property (nonatomic, strong) AVAssetExportSession *exportSession;
 @property (nonatomic, strong) UIAlertController *progressAlert;
 @property (nonatomic, copy) NSString *urlString;
+@property (nonatomic, copy) NSString *referer;
+@property (nonatomic, copy) NSString *ua;
 @property (nonatomic, copy) NSString *filename;
 @property (nonatomic, strong) NSTimer *progressTimer;
 @end
@@ -336,7 +390,7 @@ static NSString *ST_VideoDetectorJS(void) {
     return inst;
 }
 
-- (void)startWithURL:(NSString *)urlString {
+- (void)startWithURL:(NSString *)urlString referer:(NSString *)referer ua:(NSString *)ua {
     NSURL *url = [NSURL URLWithString:urlString];
     if (!url) {
         ST_ShowResultAlert(@"SafariTool", @"Invalid URL");
@@ -344,6 +398,8 @@ static NSString *ST_VideoDetectorJS(void) {
     }
 
     self.urlString = urlString;
+    self.referer = referer;
+    self.ua = ua;
 
     NSString *base = url.lastPathComponent;
     if (base.length == 0) {
@@ -366,7 +422,7 @@ static NSString *ST_VideoDetectorJS(void) {
         if (!top) {
             return;
         }
-        NSString *msg = [NSString stringWithFormat:@"Downloading HLS stream...\n\n%@\n0%%",
+        NSString *msg = [NSString stringWithFormat:@"Preparing HLS stream...\n\n%@\n0%%",
                          strongSelf.filename];
         UIAlertController *alert =
             [UIAlertController alertControllerWithTitle:@"SafariTool (HLS)"
@@ -381,12 +437,40 @@ static NSString *ST_VideoDetectorJS(void) {
         [top presentViewController:alert animated:YES completion:nil];
     });
 
-    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:nil];
+    NSMutableDictionary *headers = [NSMutableDictionary dictionary];
+    if (referer.length > 0) {
+        headers[@"Referer"] = referer;
+        NSURL *refURL = [NSURL URLWithString:referer];
+        if (refURL.scheme.length > 0 && refURL.host.length > 0) {
+            headers[@"Origin"] = [NSString stringWithFormat:@"%@://%@",
+                                  refURL.scheme, refURL.host];
+        }
+    }
+    if (ua.length > 0) {
+        headers[@"User-Agent"] = ua;
+    }
+
+    NSDictionary *options = @{
+        AVURLAssetHTTPHeaderFieldsKey: headers
+    };
+
+    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:options];
+
     [asset loadValuesAsynchronouslyForKeys:@[@"tracks", @"duration"]
                          completionHandler:^{
         dispatch_async(dispatch_get_main_queue(), ^{
             STHLSDownloader *strongSelf = weakSelf;
             if (!strongSelf) {
+                return;
+            }
+            NSError *err = nil;
+            AVKeyValueStatus status = [asset statusOfValueForKey:@"tracks" error:&err];
+            if (status != AVKeyValueStatusLoaded) {
+                NSString *msg = err.localizedDescription ?: @"Could not load HLS tracks";
+                [strongSelf.progressAlert dismissViewControllerAnimated:YES completion:^{
+                    strongSelf.progressAlert = nil;
+                    ST_ShowResultAlert(@"HLS Load Failed", msg);
+                }];
                 return;
             }
             [strongSelf beginExportWithAsset:asset];
@@ -455,9 +539,13 @@ static NSString *ST_VideoDetectorJS(void) {
         return;
     }
 
-    NSString *errMsg = session.error.localizedDescription ?: @"Unknown error";
+    NSString *errMsg = nil;
     if (status == AVAssetExportSessionStatusCancelled) {
-        errMsg = @"Cancelled";
+        errMsg = @"The operation was cancelled by the system.\n\nPossible causes:\n- Stream requires cookies/auth\n- Stream is DRM-protected\n- Server rejected the request";
+    } else if (status == AVAssetExportSessionStatusFailed) {
+        errMsg = session.error.localizedDescription ?: @"Unknown failure";
+    } else {
+        errMsg = [NSString stringWithFormat:@"Status: %ld", (long)status];
     }
     [self.progressAlert dismissViewControllerAnimated:YES completion:^{
         self.progressAlert = nil;
@@ -559,7 +647,7 @@ static NSString *ST_VideoDetectorJS(void) {
     self.session = [NSURLSession sessionWithConfiguration:cfg delegate:self delegateQueue:nil];
 }
 
-- (void)startDownload:(NSString *)urlString {
+- (void)startDownload:(NSString *)urlString referer:(NSString *)referer ua:(NSString *)ua {
     NSURL *url = [NSURL URLWithString:urlString];
     if (!url) {
         ST_ShowResultAlert(@"SafariTool", @"Invalid URL");
@@ -571,6 +659,14 @@ static NSString *ST_VideoDetectorJS(void) {
         ST_ShowResultAlert(@"SafariTool",
                            @"This video type (blob/data) cannot be downloaded directly.");
         return;
+    }
+
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    if (referer.length > 0) {
+        [req setValue:referer forHTTPHeaderField:@"Referer"];
+    }
+    if (ua.length > 0) {
+        [req setValue:ua forHTTPHeaderField:@"User-Agent"];
     }
 
     __weak STDownloadManager *weakSelf = self;
@@ -602,7 +698,7 @@ static NSString *ST_VideoDetectorJS(void) {
         [top presentViewController:alert animated:YES completion:nil];
     });
 
-    NSURLSessionDownloadTask *task = [self.session downloadTaskWithURL:url];
+    NSURLSessionDownloadTask *task = [self.session downloadTaskWithRequest:req];
     [task resume];
 }
 
@@ -769,15 +865,25 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
         }
         NSDictionary *body = message.body;
         NSString *urlStr = body[@"url"];
+        NSString *referer = body[@"referer"];
+        NSString *ua = body[@"ua"];
+
         if (![urlStr isKindOfClass:[NSString class]] || urlStr.length == 0) {
             return;
         }
+        if (![referer isKindOfClass:[NSString class]]) {
+            referer = @"";
+        }
+        if (![ua isKindOfClass:[NSString class]]) {
+            ua = @"";
+        }
+
         NSLog(@"[SafariTool] Download requested: %@", urlStr);
 
         if (ST_IsHLSURL(urlStr)) {
-            [[STHLSDownloader shared] startWithURL:urlStr];
+            [[STHLSDownloader shared] startWithURL:urlStr referer:referer ua:ua];
         } else {
-            [[STDownloadManager shared] startDownload:urlStr];
+            [[STDownloadManager shared] startDownload:urlStr referer:referer ua:ua];
         }
     } @catch (NSException *e) {
         NSLog(@"[SafariTool] Message handler exception: %@", e);
