@@ -705,8 +705,13 @@ static void ST_FindVideoFileInMovpkg(NSString *movpkgPath, void (^completion)(NS
     NSDictionary *options = @{ kSTAVHeadersKey: headers };
     AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:options];
 
-    NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration defaultSessionConfiguration];
+    NSString *identifier = [NSString stringWithFormat:@"com.mody.safarittool.hls.%@",
+                            [[NSUUID UUID] UUIDString]];
+    NSURLSessionConfiguration *cfg =
+        [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:identifier];
     cfg.allowsCellularAccess = YES;
+    cfg.discretionary = NO;
+    cfg.sessionSendsLaunchEvents = NO;
     cfg.timeoutIntervalForRequest = 60.0;
     cfg.timeoutIntervalForResource = 7200.0;
 
@@ -1348,10 +1353,15 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
     }
 
     if (valid.count == 1) {
-        [[STHLSDownloader shared] startWithURL:valid.firstObject
-                                        referer:referer
-                                             ua:ua
-                                        webView:wv];
+        NSString *onlyURL = valid.firstObject;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                     (int64_t)(0.5 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            [[STHLSDownloader shared] startWithURL:onlyURL
+                                            referer:referer
+                                                 ua:ua
+                                            webView:wv];
+        });
         return;
     }
 
@@ -1373,10 +1383,14 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
             [sheet addAction:[UIAlertAction actionWithTitle:title
                                                       style:UIAlertActionStyleDefault
                                                     handler:^(UIAlertAction *action) {
-                [[STHLSDownloader shared] startWithURL:url
-                                                referer:referer
-                                                     ua:ua
-                                                webView:wv];
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                             (int64_t)(0.5 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    [[STHLSDownloader shared] startWithURL:url
+                                                    referer:referer
+                                                         ua:ua
+                                                    webView:wv];
+                });
             }]];
             idx++;
         }
