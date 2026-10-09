@@ -4,9 +4,11 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.7.1";
+static NSString *const kSTGuardVersion = @"0.7.2";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
+
+static NSString *const kSTAVHeadersKey = @"AVURLAssetHTTPHeaderFieldsKey";
 
 static char kSTInstalledKey;
 static char kSTMessageHandlerKey;
@@ -451,7 +453,7 @@ static NSString *ST_VideoDetectorJS(void) {
     }
 
     NSDictionary *options = @{
-        AVURLAssetHTTPHeaderFieldsKey: headers
+        kSTAVHeadersKey: headers
     };
 
     AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:options];
