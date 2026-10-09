@@ -4,7 +4,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.8.4";
+static NSString *const kSTGuardVersion = @"0.9.0";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -506,10 +506,7 @@ static NSString *ST_VideoDetectorJS(void) {
             self.view.label.text = text;
 
             UIWindowScene *scene = ST_ActiveWindowScene();
-            if (!scene) {
-                NSLog(@"[SafariTool] No active window scene");
-                return;
-            }
+            if (!scene) return;
 
             if (!self.window) {
                 self.window = [[UIWindow alloc] initWithWindowScene:scene];
@@ -535,18 +532,14 @@ static NSString *ST_VideoDetectorJS(void) {
             self.view.frame = CGRectMake(x, y, w, h);
 
             self.window.hidden = NO;
-        } @catch (NSException *e) {
-            NSLog(@"[SafariTool] Floating show exception: %@", e);
-        }
+        } @catch (NSException *e) {}
     });
 }
 
 - (void)updateText:(NSString *)text {
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
-            if (self.view) {
-                self.view.label.text = text;
-            }
+            if (self.view) self.view.label.text = text;
         } @catch (NSException *e) {}
     });
 }
@@ -567,6 +560,60 @@ static NSString *ST_VideoDetectorJS(void) {
 }
 
 @end
+
+static void ST_FindVideoFileInMovpkg(NSString *movpkgPath, void (^completion)(NSString *videoPath)) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSError *err = nil;
+    NSArray *contents = [fm contentsOfDirectoryAtPath:movpkgPath error:&err];
+    if (!contents) {
+        completion(nil);
+        return;
+    }
+
+    NSString *bestPath = nil;
+    unsigned long long bestSize = 0;
+
+    for (NSString *name in contents) {
+        if ([name hasPrefix:@"."]) continue;
+
+        NSString *fullPath = [movpkgPath stringByAppendingPathComponent:name];
+        NSDictionary *attrs = [fm attributesOfItemAtPath:fullPath error:nil];
+        unsigned long long size = [attrs fileSize];
+
+        NSString *lower = [name lowercaseString];
+        BOOL isVideo = ([lower hasSuffix:@".mov"] ||
+                        [lower hasSuffix:@".mp4"] ||
+                        [lower hasSuffix:@".m4v"] ||
+                        [lower hasSuffix:@".fmp4"]);
+
+        if (!isVideo) {
+            BOOL isDir = NO;
+            [fm fileExistsAtPath:fullPath isDirectory:&isDir];
+            if (isDir) {
+                NSString *nested = nil;
+                ST_FindVideoFileInMovpkg(fullPath, ^(NSString *p) {
+                    nested = p;
+                });
+                if (nested) {
+                    NSDictionary *nAttrs = [fm attributesOfItemAtPath:nested error:nil];
+                    unsigned long long nSize = [nAttrs fileSize];
+                    if (nSize > bestSize) {
+                        bestSize = nSize;
+                        bestPath = nested;
+                    }
+                }
+            }
+            continue;
+        }
+
+        if (size > bestSize) {
+            bestSize = size;
+            bestPath = fullPath;
+        }
+    }
+
+    completion(bestPath);
+}
 
 @interface STHLSDownloader : NSObject <AVAssetDownloadDelegate>
 @property (nonatomic, strong) AVAssetDownloadURLSession *session;
@@ -728,16 +775,10 @@ static NSString *ST_VideoDetectorJS(void) {
     self.inBackgroundMode = YES;
     dispatch_async(dispatch_get_main_queue(), ^{
         if (self.finished || self.cancelled) return;
-
-        NSString *pct = [NSString stringWithFormat:@"%.0f%%",
-                         self.currentProgress * 100.0];
+        NSString *pct = [NSString stringWithFormat:@"%.0f%%", self.currentProgress * 100.0];
         STFloatingProgress *fp = [STFloatingProgress shared];
-        fp.onTap = ^{
-            [self showAlert];
-        };
-        fp.onCancel = ^{
-            [self cancel];
-        };
+        fp.onTap = ^{ [self showAlert]; };
+        fp.onCancel = ^{ [self cancel]; };
         [fp showWithText:pct];
     });
 }
@@ -749,7 +790,6 @@ totalTimeRangesLoaded:(NSArray<NSValue *> *)loadedTimeRanges
 timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
 
     if (self.cancelled || self.finished) return;
-
     double expected = CMTimeGetSeconds(timeRangeExpectedToLoad.duration);
     if (expected <= 0) return;
 
@@ -789,28 +829,180 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
     NSString *dir = [docs stringByAppendingPathComponent:@"SafariTool"];
     [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
 
-    NSString *dst = [dir stringByAppendingPathComponent:
-                     [NSString stringWithFormat:@"%@.movpkg", self.filename]];
-    [fm removeItemAtPath:dst [ error:nil];
+    NSString *dstPath = [dir stringByAppendingPathComponent:
+                         [NSString stringWithFormat:@"%@.movpkg", self.filename]];
+    [fm removeItemAtPath:dstPath error:nil];
 
-    NSError *moveErralert = nil;
-    BOOL moved = [ dismissfm moveItemAtURL:location
-                            ViewController toURL:[NSURL fileURLWithPath:dstAn]
+    NSError *moveErr = nil;
+    BOOL moved = [fm moveItemAtURL:location
+                             toURL:[NSURL fileURLWithPath:dstPath]
                              error:&moveErr];
 
-    NSStringimated *resultTitle;
-    NSString *resultMsg;
-    if (m:oved) {
-        resultTitle = @"Saved to Files";
-        resultMsg = [NSString stringWithFormat:
-                     @"HLS video saved.\n\nFile: %@.movpkg", self.filename];
-    } else {
-        resultTitle = @"Save Failed";
-        resultMsg = moveErr.localizedDescription ?: @"Unknown error";
+    [self cleanupSession];
+
+    if (!moved) {
+        [self finishWithTitle:@"Save Failed"
+                      message:moveErr.localizedDescription ?: @"Unknown error"];
+        return;
     }
 
-    [self cleanupSession];
-    [self finishWithTitle:resultTitle message:resultMsg];
+    [self updateProgressMessage:@"Converting to MP4..."];
+    [self convertMovpkgAndSaveToPhotos:dstPath];
+}
+
+- (void)updateProgressMessage:(NSString *)text {
+    if (self.inBackgroundMode) {
+        [[STFloatingProgress shared] updateText:text];
+    } else if (self.progressAlert) {
+        self.progressAlert.message = text;
+    }
+}
+
+- (void)convertMovpkgAndSaveToPhotos:(NSString *)movpkgPath {
+    ST_FindVideoFileInMovpkg(movpkgPath, ^(NSString *videoPath) {
+        if (!videoPath) {
+            [self fallbackToPhotosFromMovpkg:movpkgPath];
+            return;
+        }
+
+        NSURL *fileURL = [NSURL fileURLWithPath:videoPath];
+        AVURLAsset *asset = [AVURLAsset URLAssetWithURL:fileURL options:nil];
+
+        [asset loadValuesAsynchronouslyForKeys:@[@"tracks", @"duration"]
+                             completionHandler:^{
+            dispatch_async(dispatch_get_main_queue(), ^{
+                NSError *err = nil;
+                AVKeyValueStatus status = [asset statusOfValueForKey:@"tracks" error:&err];
+                if (status != AVKeyValueStatusLoaded) {
+                    [self fallbackToPhotosFromMovpkg:movpkgPath];
+                    return;
+                }
+
+                [self runExportWithAsset:asset movpkgPath:movpkgPath];
+            });
+        }];
+    });
+}
+
+- (void)runExportWithAsset:(AVAsset *)asset movpkgPath:(NSString *)movpkgPath {
+    NSString *outName = [NSString stringWithFormat:@"%@.mp4", self.filename];
+    NSString *outPath = [NSTemporaryDirectory() stringByAppendingPathComponent:outName];
+    [[NSFileManager defaultManager] removeItemAtPath:outPath error:nil];
+
+    NSArray *presets = [AVAssetExportSession exportPresetsCompatibleWithAsset:asset];
+    NSString *preset = nil;
+    if ([presets containsObject:AVAssetExportPresetPassthrough]) {
+        preset = AVAssetExportPresetPassthrough;
+    } else if ([presets containsObject:AVAssetExportPresetHighestQuality]) {
+        preset = AVAssetExportPresetHighestQuality;
+    } else if ([presets containsObject:AVAssetExportPresetMediumQuality]) {
+        preset = AVAssetExportPresetMediumQuality;
+    } else if (presets.count > 0) {
+        preset = presets.firstObject;
+    }
+
+    if (!preset) {
+        [self fallbackToPhotosFromMovpkg:movpkgPath];
+        return;
+    }
+
+    AVAssetExportSession *session =
+        [[AVAssetExportSession alloc] initWithAsset:asset presetName:preset];
+    session.outputURL = [NSURL fileURLWithPath:outPath];
+
+    NSArray *supported = session.supportedFileTypes;
+    if ([supported containsObject:AVFileTypeMPEG4]) {
+        session.outputFileType = AVFileTypeMPEG4;
+    } else if ([supported containsObject:AVFileTypeQuickTimeMovie]) {
+        session.outputFileType = AVFileTypeQuickTimeMovie;
+    } else if (supported.count > 0) {
+        session.outputFileType = supported.firstObject;
+    } else {
+        [self fallbackToPhotosFromMovpkg:movpkgPath];
+        return;
+    }
+
+    session.shouldOptimizeForNetworkUse = YES;
+
+    [session exportAsynchronouslyWithCompletionHandler:^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (session.status == AVAssetExportSessionStatusCompleted) {
+                [self saveMP4ToPhotos:outPath movpkgPath:movpkgPath];
+            } else {
+                NSLog(@"[SafariTool] Conversion failed: %@", session.error);
+                [[NSFileManager defaultManager] removeItemAtPath:outPath error:nil];
+                [self fallbackToPhotosFromMovpkg:movpkgPath];
+            }
+        });
+    }];
+}
+
+- (void)saveMP4ToPhotos:(NSString *)mp4Path movpkgPath:(NSString *)movpkgPath {
+    NSURL *fileURL = [NSURL fileURLWithPath:mp4Path];
+
+    [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+        [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:fileURL];
+    } completionHandler:^(BOOL success, NSError *error) {
+        if (success) {
+            [[NSFileManager defaultManager] removeItemAtPath:mp4Path error:nil];
+            [[NSFileManager defaultManager] removeItemAtPath:movpkgPath error:nil];
+            NSString *msg = [NSString stringWithFormat:@"Video saved to Photos:\n%@", self.filename];
+            [self finishWithTitle:@"Saved to Photos" message:msg];
+        } else {
+            NSLog(@"[SafariTool] Photos save failed: %@", error);
+            [self fallbackToSaveMP4ToFiles:mp4Path movpkgPath:movpkgPath];
+        }
+    }];
+}
+
+- (void)fallbackToSaveMP4ToFiles:(NSString *)mp4Path movpkgPath:(NSString *)movpkgPath {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,
+                                                          NSUserDomainMask, YES);
+    NSString *docs = paths.firstObject ?: NSTemporaryDirectory();
+    NSString *dir = [docs stringByAppendingPathComponent:@"SafariTool"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+
+    NSString *mp4Name = [NSString stringWithFormat:@"%@.mp4", self.filename];
+    NSString *dst = [dir stringByAppendingPathComponent:mp4Name];
+    [fm removeItemAtPath:dst error:nil];
+
+    NSError *moveErr = nil;
+    [fm moveItemAtPath:mp4Path toPath:dst error:&moveErr];
+
+    [fm removeItemAtPath:movpkgPath error:nil];
+
+    if (moveErr) {
+        [self finishWithTitle:@"Save Failed" message:moveErr.localizedDescription];
+    } else {
+        NSString *msg = [NSString stringWithFormat:@"Saved as %@", mp4Name];
+        [self finishWithTitle:@"Saved to Files" message:msg];
+    }
+}
+
+- (void)fallbackToPhotosFromMovpkg:(NSString *)movpkgPath {
+    NSURL *movpkgURL = [NSURL fileURLWithPath:movpkgPath];
+    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:movpkgURL options:nil];
+
+    [asset loadValuesAsynchronouslyForKeys:@[@"tracks", @"duration"]
+                         completionHandler:^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSError *err = nil;
+            AVKeyValueStatus status = [asset statusOfValueForKey:@"tracks" error:&err];
+            if (status != AVKeyValueStatusLoaded) {
+                [self keepMovpkgInFiles:movpkgPath];
+                return;
+            }
+            [self runExportWithAsset:asset movpkgPath:movpkgPath];
+        });
+    }];
+}
+
+- (void)keepMovpkgInFiles:(NSString *)movpkgPath {
+    NSString *msg = [NSString stringWithFormat:
+                     @"HLS video saved as .movpkg.\n\nCould not convert to MP4.\n\nFile: %@.movpkg",
+                     self.filename];
+    [self finishWithTitle:@"Saved to Files" message:msg];
 }
 
 - (void)URLSession:(NSURLSession *)session
@@ -821,10 +1013,7 @@ didCompleteWithError:(NSError *)error {
     if (error.code == NSURLErrorCancelled) return;
 
     self.finished = YES;
-    NSLog(@"[SafariTool] HLS download task error: %@", error);
-
     [self cleanupSession];
-
     NSString *msg = error.localizedDescription ?: @"Unknown error";
     [self finishWithTitle:@"HLS Download Failed" message:msg];
 }
@@ -832,18 +1021,13 @@ didCompleteWithError:(NSError *)error {
 - (void)cancel {
     if (self.cancelled) return;
     self.cancelled = YES;
-
     [[STFloatingProgress shared] hide];
-
     if (self.progressAlert) {
         [self.progressAlert dismissViewControllerAnimated:YES completion:^{
             self.progressAlert = nil;
         }];
     }
-
-    if (self.task) {
-        [self.task cancel];
-    }
+    if (self.task) [self.task cancel];
     [self cleanupSession];
 }
 
@@ -893,7 +1077,7 @@ didCompleteWithError:(NSError *)error {
         UIAlertController *alert = self.progressAlert;
         self.progressAlert = nil;
         if (alert) {
-           YES completion:^{
+            [alert dismissViewControllerAnimated:YES completion:^{
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                                              (int64_t)(0.4 * NSEC_PER_SEC)),
                                dispatch_get_main_queue(), ^{
@@ -944,7 +1128,6 @@ didCompleteWithError:(NSError *)error {
 - (void)showAlert {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (self.progressAlert) return;
-
         UIViewController *top = ST_SafeTopViewController();
         if (!top) return;
         if (top.presentedViewController) return;
@@ -979,16 +1162,10 @@ didCompleteWithError:(NSError *)error {
     self.inBackgroundMode = YES;
     dispatch_async(dispatch_get_main_queue(), ^{
         if (self.finished || self.cancelled) return;
-
-        NSString *pct = [NSString stringWithFormat:@"%.0f%%",
-                         self.currentProgress * 100.0];
+        NSString *pct = [NSString stringWithFormat:@"%.0f%%", self.currentProgress * 100.0];
         STFloatingProgress *fp = [STFloatingProgress shared];
-        fp.onTap = ^{
-            [self showAlert];
-        };
-        fp.onCancel = ^{
-            [self cancel];
-        };
+        fp.onTap = ^{ [self showAlert]; };
+        fp.onCancel = ^{ [self cancel]; };
         [fp showWithText:pct];
     });
 }
@@ -1020,7 +1197,6 @@ didFinishDownloadingToURL:(NSURL *)location {
     self.finished = YES;
 
     NSString *tmpPath = [NSTemporaryDirectory() stringByAppendingPathComponent:self.filename];
-
     NSFileManager *fm = [NSFileManager defaultManager];
     [fm removeItemAtPath:tmpPath error:nil];
 
@@ -1080,7 +1256,6 @@ didCompleteWithError:(NSError *)error {
     if (!error) return;
     if (self.cancelled || self.finished) return;
     if (error.code == NSURLErrorCancelled) return;
-
     self.finished = YES;
     NSString *msg = error.localizedDescription ?: @"Unknown error";
     [self finishWithTitle:@"Download Failed" message:msg];
@@ -1089,15 +1264,12 @@ didCompleteWithError:(NSError *)error {
 - (void)cancel {
     if (self.cancelled) return;
     self.cancelled = YES;
-
     [[STFloatingProgress shared] hide];
-
     if (self.progressAlert) {
         [self.progressAlert dismissViewControllerAnimated:YES completion:^{
             self.progressAlert = nil;
         }];
     }
-
     if (self.session) {
         [self.session invalidateAndCancel];
         self.session = nil;
