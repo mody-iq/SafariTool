@@ -4,7 +4,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.7.2";
+static NSString *const kSTGuardVersion = @"0.7.3";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -236,6 +236,57 @@ static NSString *ST_ForceCopyJS(void) {
     return js;
 }
 
+// ---------- Stream Capture JS (NEW) ----------
+// Runs at DocumentStart, hooks fetch/XHR to capture m3u8/mpd URLs.
+
+static NSString *ST_StreamCaptureJS(void) {
+    static NSString *js = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableString *s = [NSMutableString string];
+        [s appendString:@"(function(){"];
+        [s appendString:@"if(window.__stStreamHook){return;}"];
+        [s appendString:@"window.__stStreamHook=true;"];
+        [s appendString:@"window.__stCaptured=[];"];
+        [s appendString:@"function __stAdd(u){"];
+        [s appendString:@"try{"];
+        [s appendString:@"if(!u)return;"];
+        [s appendString:@"u=String(u);"];
+        [s appendString:@"if(u.indexOf('blob:')===0)return;"];
+        [s appendString:@"if(u.indexOf('data:')===0)return;"];
+        [s appendString:@"var l=u.toLowerCase();"];
+        [s appendString:@"if(l.indexOf('.m3u8')<0 && l.indexOf('.mpd')<0)return;"];
+        [s appendString:@"if(window.__stCaptured.indexOf(u)<0){"];
+        [s appendString:@"window.__stCaptured.push(u);"];
+        [s appendString:@"if(window.__stCaptured.length>15)window.__stCaptured.shift();"];
+        [s appendString:@"}"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"}"];
+        [s appendString:@"try{"];
+        [s appendString:@"var __stOpen=XMLHttpRequest.prototype.open;"];
+        [s appendString:@"XMLHttpRequest.prototype.open=function(m,url){"];
+        [s appendString:@"__stAdd(url);"];
+        [s appendString:@"return __stOpen.apply(this,arguments);"];
+        [s appendString:@"};"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"try{"];
+        [s appendString:@"if(window.fetch){"];
+        [s appendString:@"var __stFetch=window.fetch;"];
+        [s appendString:@"window.fetch=function(input,init){"];
+        [s appendString:@"try{"];
+        [s appendString:@"if(typeof input==='string')__stAdd(input);"];
+        [s appendString:@"else if(input&&input.url)__stAdd(input.url);"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"return __stFetch.apply(this,arguments);"];
+        [s appendString:@"};"];
+        [s appendString:@"}"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"})();"];
+        js = [s copy];
+    });
+    return js;
+}
+
 static NSString *ST_VideoDetectorJS(void) {
     static NSString *js = nil;
     static dispatch_once_t once;
@@ -248,9 +299,13 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"function isHLS(u){"];
         [s appendString:@"if(!u)return false;"];
         [s appendString:@"var l=u.toLowerCase();"];
+        [s appendString:@"if(l.indexOf('blob:')===0)return true;"];
         [s appendString:@"if(l.indexOf('.m3u8')>=0)return true;"];
         [s appendString:@"if(l.indexOf('/hls/')>=0)return true;"];
         [s appendString:@"return false;"];
+        [s appendString:@"}"];
+        [s appendString:@"function isBlob(u){"];
+        [s appendString:@"return u && u.indexOf('blob:')===0;"];
         [s appendString:@"}"];
         [s appendString:@"function pickBestSource(v){"];
         [s appendString:@"try{"];
@@ -287,7 +342,7 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"return id;"];
         [s appendString:@"}"];
         [s appendString:@"var svgArrow='<svg width=\"13\" height=\"13\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"display:block;\"><path d=\"M12 4v14M5 11l7 7 7-7\"/></svg>';"];
-        [s appendString:@"function makeButton(id,url,hls){"];
+        [s appendString:@"function makeButton(id,url,isHLSStream,isBlobStream){"];
         [s appendString:@"var btn=document.getElementById('st-btn-'+id);"];
         [s appendString:@"if(!btn){"];
         [s appendString:@"btn=document.createElement('div');"];
@@ -298,21 +353,23 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"btn.addEventListener('click',function(e){"];
         [s appendString:@"e.stopPropagation();e.preventDefault();"];
         [s appendString:@"var u=btn.getAttribute('data-st-url');"];
-        [s appendString:@"if(!u)return;"];
+        [s appendString:@"var blob=btn.getAttribute('data-st-blob')==='1';"];
+        [s appendString:@"var streams=(window.__stCaptured||[]).slice();"];
         [s appendString:@"btn.style.opacity='0.5';"];
         [s appendString:@"btn.innerHTML='<span style=\"font-size:11px;\">...</span>';"];
-        [s appendString:@"try{window.webkit.messageHandlers.stDownload.postMessage({url:u,referer:window.location.href,ua:navigator.userAgent});}catch(err){}"];
+        [s appendString:@"try{window.webkit.messageHandlers.stDownload.postMessage({url:u,referer:window.location.href,ua:navigator.userAgent,blob:blob,streams:streams});}catch(err){}"];
         [s appendString:@"},true);"];
         [s appendString:@"(document.body||document.documentElement).appendChild(btn);"];
         [s appendString:@"}"];
-        [s appendString:@"btn.style.background=hls?'#FF9500':'#007AFF';"];
-        [s appendString:@"btn.setAttribute('data-st-url',url);"];
+        [s appendString:@"btn.style.background=isHLSStream?'#FF9500':'#007AFF';"];
+        [s appendString:@"btn.setAttribute('data-st-url',url||'');"];
+        [s appendString:@"btn.setAttribute('data-st-blob',isBlobStream?'1':'0');"];
         [s appendString:@"return btn;"];
         [s appendString:@"}"];
         [s appendString:@"function positionButton(btn,v){"];
         [s appendString:@"try{"];
         [s appendString:@"var r=v.getBoundingClientRect();"];
-        [s appendString:@"if(r.width<80||r.height<80){btn.style.display='none';return;}"];
+        [s appendString:@"if(r.width<100||r.height<100){btn.style.display='none';return;}"];
         [s appendString:@"if(r.bottom<0||r.top>window.innerHeight){btn.style.display='none';return;}"];
         [s appendString:@"btn.style.display='flex';"];
         [s appendString:@"var bw=btn.offsetWidth||110;"];
@@ -335,10 +392,17 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"for(var i=0;i<videos.length;i++){"];
         [s appendString:@"var v=videos[i];"];
         [s appendString:@"var url=pickBestSource(v);"];
-        [s appendString:@"if(!url)continue;"];
+        [s appendString:@"var blob=isBlob(url);"];
+        [s appendString:@"if(!url){"];
+        [s appendString:@"var captured=(window.__stCaptured||[]);"];
+        [s appendString:@"if(captured.length===0)continue;"];
+        [s appendString:@"url=captured[0];"];
+        [s appendString:@"blob=false;"];
+        [s appendString:@"}"];
         [s appendString:@"var id=ensureId(v);"];
         [s appendString:@"activeIds[id]=true;"];
-        [s appendString:@"var btn=makeButton(id,url,isHLS(url));"];
+        [s appendString:@"var isH=isHLS(url)||blob;"];
+        [s appendString:@"var btn=makeButton(id,url,isH,blob);"];
         [s appendString:@"positionButton(btn,v);"];
         [s appendString:@"}"];
         [s appendString:@"var existing=document.querySelectorAll('[data-st-btn]');"];
@@ -370,6 +434,8 @@ static NSString *ST_VideoDetectorJS(void) {
     });
     return js;
 }
+
+// ---------- HLS Downloader ----------
 
 @interface STHLSDownloader : NSObject
 @property (nonatomic, strong) AVAssetExportSession *exportSession;
@@ -618,6 +684,8 @@ static NSString *ST_VideoDetectorJS(void) {
 
 @end
 
+// ---------- Direct Download Manager ----------
+
 @interface STDownloadManager : NSObject <NSURLSessionDownloadDelegate>
 @property (nonatomic, strong) NSURLSession *session;
 @property (nonatomic, strong) UIAlertController *progressAlert;
@@ -653,13 +721,6 @@ static NSString *ST_VideoDetectorJS(void) {
     NSURL *url = [NSURL URLWithString:urlString];
     if (!url) {
         ST_ShowResultAlert(@"SafariTool", @"Invalid URL");
-        return;
-    }
-
-    NSString *scheme = [url.scheme lowercaseString];
-    if ([scheme isEqualToString:@"blob"] || [scheme isEqualToString:@"data"]) {
-        ST_ShowResultAlert(@"SafariTool",
-                           @"This video type (blob/data) cannot be downloaded directly.");
         return;
     }
 
@@ -844,6 +905,8 @@ didCompleteWithError:(NSError *)error {
 
 @end
 
+// ---------- Message Handler ----------
+
 static BOOL ST_IsHLSURL(NSString *urlString) {
     if (urlString.length == 0) {
         return NO;
@@ -869,15 +932,24 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
         NSString *urlStr = body[@"url"];
         NSString *referer = body[@"referer"];
         NSString *ua = body[@"ua"];
+        BOOL isBlob = [body[@"blob"] boolValue];
+        NSArray *streams = body[@"streams"];
 
-        if (![urlStr isKindOfClass:[NSString class]] || urlStr.length == 0) {
-            return;
-        }
         if (![referer isKindOfClass:[NSString class]]) {
             referer = @"";
         }
         if (![ua isKindOfClass:[NSString class]]) {
             ua = @"";
+        }
+
+        // Streaming case: pick from captured list
+        if (isBlob || !urlStr || urlStr.length == 0 || [urlStr hasPrefix:@"blob:"]) {
+            [self handleStreamingChoice:streams referer:referer ua:ua];
+            return;
+        }
+
+        if (![urlStr isKindOfClass:[NSString class]]) {
+            return;
         }
 
         NSLog(@"[SafariTool] Download requested: %@", urlStr);
@@ -890,6 +962,68 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
     } @catch (NSException *e) {
         NSLog(@"[SafariTool] Message handler exception: %@", e);
     }
+}
+
+- (void)handleStreamingChoice:(NSArray *)streams referer:(NSString *)referer ua:(NSString *)ua {
+    NSMutableArray *valid = [NSMutableArray array];
+    if ([streams isKindOfClass:[NSArray class]]) {
+        for (id s in streams) {
+            if ([s isKindOfClass:[NSString class]] && [s length] > 0) {
+                [valid addObject:s];
+            }
+        }
+    }
+
+    if (valid.count == 0) {
+        ST_ShowResultAlert(@"No stream captured",
+                           @"This video is played via Media Source Extensions (MSE).\n\nPlease PLAY the video for 2-3 seconds first, then press the download button again so SafariTool can capture the stream URL.");
+        return;
+    }
+
+    if (valid.count == 1) {
+        NSString *url = valid.firstObject;
+        NSLog(@"[SafariTool] Using single captured stream: %@", url);
+        [[STHLSDownloader shared] startWithURL:url referer:referer ua:ua];
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *top = ST_TopViewController();
+        if (!top) {
+            return;
+        }
+        UIAlertController *sheet =
+            [UIAlertController alertControllerWithTitle:@"Choose a stream"
+                                                message:@"Multiple video streams were detected. Pick the one you want:"
+                                         preferredStyle:UIAlertControllerStyleActionSheet];
+
+        NSInteger idx = 1;
+        for (NSString *url in valid) {
+            NSString *shortName = url.lastPathComponent;
+            if (shortName.length > 50) {
+                shortName = [shortName substringToIndex:50];
+            }
+            NSString *title = [NSString stringWithFormat:@"%ld. %@", (long)idx, shortName];
+            [sheet addAction:[UIAlertAction actionWithTitle:title
+                                                      style:UIAlertActionStyleDefault
+                                                    handler:^(UIAlertAction *action) {
+                [[STHLSDownloader shared] startWithURL:url referer:referer ua:ua];
+            }]];
+            idx++;
+        }
+
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                                  style:UIAlertActionStyleCancel
+                                                handler:nil]];
+
+        if (sheet.popoverPresentationController) {
+            sheet.popoverPresentationController.sourceView = top.view;
+            sheet.popoverPresentationController.sourceRect =
+                CGRectMake(top.view.bounds.size.width / 2.0,
+                           top.view.bounds.size.height / 2.0, 1, 1);
+        }
+        [top presentViewController:sheet animated:YES completion:nil];
+    });
 }
 
 @end
@@ -905,6 +1039,13 @@ static void ST_InstallScripts(WKWebView *wv) {
         }
         objc_setAssociatedObject(ucc, &kSTInstalledKey, @YES,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        // Stream capture hook (must be first - DocumentStart)
+        WKUserScript *captureScript =
+            [[WKUserScript alloc] initWithSource:ST_StreamCaptureJS()
+                                   injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                forMainFrameOnly:NO];
+        [ucc addUserScript:captureScript];
 
         if (ST_Pref(@"SafariTool_ForceCopy", YES)) {
             WKUserScript *script =
