@@ -4,7 +4,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"0.7.5";
+static NSString *const kSTGuardVersion = @"0.8.0";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -18,9 +18,7 @@ typedef void (^STDecisionHandler)(WKNavigationActionPolicy, WKWebpagePreferences
 static id ST_GlobalVal(NSString *key) {
     CFPropertyListRef cf = CFPreferencesCopyAppValue((__bridge CFStringRef)key,
                                                     kCFPreferencesAnyApplication);
-    if (!cf) {
-        return nil;
-    }
+    if (!cf) return nil;
     return CFBridgingRelease(cf);
 }
 
@@ -28,20 +26,15 @@ static id ST_RawPref(NSString *key) {
     id v = nil;
     @try {
         v = ST_GlobalVal(key);
-        if (v) {
-            return v;
-        }
+        if (v) return v;
         v = [[NSUserDefaults standardUserDefaults] objectForKey:key];
-    } @catch (NSException *e) {
-    }
+    } @catch (NSException *e) {}
     return v;
 }
 
 static BOOL ST_Pref(NSString *key, BOOL def) {
     id v = ST_RawPref(key);
-    if ([v respondsToSelector:@selector(boolValue)]) {
-        return [v boolValue];
-    }
+    if ([v respondsToSelector:@selector(boolValue)]) return [v boolValue];
     return def;
 }
 
@@ -51,32 +44,21 @@ static UIViewController *ST_TopViewController(void) {
         if ([scene isKindOfClass:[UIWindowScene class]]) {
             UIWindowScene *ws = (UIWindowScene *)scene;
             for (UIWindow *w in ws.windows) {
-                if (w.isKeyWindow) {
-                    keyWindow = w;
-                    break;
-                }
+                if (w.isKeyWindow) { keyWindow = w; break; }
             }
-            if (keyWindow) {
-                break;
-            }
+            if (keyWindow) break;
         }
     }
-    if (!keyWindow) {
-        keyWindow = [UIApplication sharedApplication].keyWindow;
-    }
+    if (!keyWindow) keyWindow = [UIApplication sharedApplication].keyWindow;
     UIViewController *vc = keyWindow.rootViewController;
-    while (vc.presentedViewController) {
-        vc = vc.presentedViewController;
-    }
+    while (vc.presentedViewController) vc = vc.presentedViewController;
     return vc;
 }
 
 static void ST_ShowResultAlert(NSString *title, NSString *message) {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIViewController *top = ST_TopViewController();
-        if (!top) {
-            return;
-        }
+        if (!top) return;
         UIAlertController *alert =
             [UIAlertController alertControllerWithTitle:title
                                                 message:message
@@ -91,7 +73,6 @@ static void ST_ShowResultAlert(NSString *title, NSString *message) {
 static BOOL ST_GuardBegin(void) {
     @try {
         NSUserDefaults *std = [NSUserDefaults standardUserDefaults];
-
         NSString *savedVersion = [std stringForKey:@"STGuardVersion"];
         if (![savedVersion isEqualToString:kSTGuardVersion]) {
             [std setObject:kSTGuardVersion forKey:@"STGuardVersion"];
@@ -99,12 +80,10 @@ static BOOL ST_GuardBegin(void) {
             [std setBool:NO forKey:@"STTripped"];
             [std setBool:NO forKey:@"STPending"];
         }
-
         if ([std boolForKey:@"STTripped"]) {
             [std synchronize];
             return NO;
         }
-
         if ([std boolForKey:@"STPending"]) {
             NSInteger count = [std integerForKey:@"STCrashCount"] + 1;
             [std setInteger:count forKey:@"STCrashCount"];
@@ -115,10 +94,8 @@ static BOOL ST_GuardBegin(void) {
                 return NO;
             }
         }
-
         [std setBool:YES forKey:@"STPending"];
         [std synchronize];
-
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                                      (int64_t)(kSTSurviveSeconds * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
@@ -136,41 +113,28 @@ static BOOL ST_GuardBegin(void) {
 static BOOL ST_DesktopEffective(void) {
     @try {
         id ov = [[NSUserDefaults standardUserDefaults] objectForKey:@"STDesktopOverride"];
-        if ([ov respondsToSelector:@selector(boolValue)]) {
-            return [ov boolValue];
-        }
-    } @catch (NSException *e) {
-    }
+        if ([ov respondsToSelector:@selector(boolValue)]) return [ov boolValue];
+    } @catch (NSException *e) {}
     return ST_Pref(@"SafariTool_Desktop", NO);
 }
 
 static void ST_PatchDelegateClass(Class cls) {
-    if (!cls) {
-        return;
-    }
+    if (!cls) return;
     static NSMutableSet *done = nil;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        done = [NSMutableSet set];
-    });
+    dispatch_once(&once, ^{ done = [NSMutableSet set]; });
     NSString *name = NSStringFromClass(cls);
     @synchronized (done) {
-        if ([done containsObject:name]) {
-            return;
-        }
+        if ([done containsObject:name]) return;
         [done addObject:name];
     }
 
     SEL sel = @selector(webView:decidePolicyForNavigationAction:preferences:decisionHandler:);
     Method m = class_getInstanceMethod(cls, sel);
-    if (!m) {
-        return;
-    }
+    if (!m) return;
     IMP orig = method_getImplementation(m);
     const char *types = method_getTypeEncoding(m);
-    if (!orig || !types) {
-        return;
-    }
+    if (!orig || !types) return;
 
     IMP newImp = imp_implementationWithBlock(
         ^(id self_, WKWebView *wv, WKNavigationAction *action,
@@ -182,20 +146,13 @@ static void ST_PatchDelegateClass(Class cls) {
                 BOOL web = ([scheme isEqualToString:@"http"] ||
                             [scheme isEqualToString:@"https"]);
                 should = (isMain && web && ST_DesktopEffective());
-            } @catch (NSException *e) {
-                should = NO;
-            }
+            } @catch (NSException *e) { should = NO; }
 
             STDecisionHandler wrapped = handler;
             if (should && handler) {
                 wrapped = ^(WKNavigationActionPolicy policy, WKWebpagePreferences *pp) {
-                    WKWebpagePreferences *use = pp;
-                    if (!use) {
-                        use = prefs;
-                    }
-                    if (!use) {
-                        use = [[WKWebpagePreferences alloc] init];
-                    }
+                    WKWebpagePreferences *use = pp ?: prefs;
+                    if (!use) use = [[WKWebpagePreferences alloc] init];
                     use.preferredContentMode = WKContentModeDesktop;
                     handler(policy, use);
                 };
@@ -301,9 +258,7 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"if(l.indexOf('/hls/')>=0)return true;"];
         [s appendString:@"return false;"];
         [s appendString:@"}"];
-        [s appendString:@"function isBlob(u){"];
-        [s appendString:@"return u && u.indexOf('blob:')===0;"];
-        [s appendString:@"}"];
+        [s appendString:@"function isBlob(u){return u && u.indexOf('blob:')===0;}"];
         [s appendString:@"function pickBestSource(v){"];
         [s appendString:@"try{"];
         [s appendString:@"var sources=v.querySelectorAll('source');"];
@@ -332,10 +287,7 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"}"];
         [s appendString:@"function ensureId(v){"];
         [s appendString:@"var id=v.getAttribute(ID_ATTR);"];
-        [s appendString:@"if(!id){"];
-        [s appendString:@"id='st'+Math.random().toString(36).substr(2,9);"];
-        [s appendString:@"v.setAttribute(ID_ATTR,id);"];
-        [s appendString:@"}"];
+        [s appendString:@"if(!id){id='st'+Math.random().toString(36).substr(2,9);v.setAttribute(ID_ATTR,id);}"];
         [s appendString:@"return id;"];
         [s appendString:@"}"];
         [s appendString:@"var svgArrow='<svg width=\"13\" height=\"13\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"display:block;\"><path d=\"M12 4v14M5 11l7 7 7-7\"/></svg>';"];
@@ -432,16 +384,19 @@ static NSString *ST_VideoDetectorJS(void) {
     return js;
 }
 
-@interface STHLSDownloader : NSObject
-@property (nonatomic, strong) AVAssetExportSession *exportSession;
-@property (nonatomic, strong) AVURLAsset *asset;
+// ============================================================
+// HLS Downloader using AVAssetDownloadURLSession (OFFICIAL)
+// ============================================================
+
+@interface STHLSDownloader : NSObject <AVAssetDownloadDelegate>
+@property (nonatomic, strong) AVAssetDownloadURLSession *session;
+@property (nonatomic, strong) AVAssetDownloadTask *task;
 @property (nonatomic, strong) UIAlertController *progressAlert;
-@property (nonatomic, copy) NSString *urlString;
+@property (nonatomic, copy) NSString *filename;
 @property (nonatomic, copy) NSString *referer;
 @property (nonatomic, copy) NSString *ua;
-@property (nonatomic, copy) NSString *filename;
 @property (nonatomic, strong) NSTimer *progressTimer;
-@property (nonatomic, strong) WKWebView *webView;
+@property (nonatomic, assign) double lastProgress;
 @end
 
 @implementation STHLSDownloader
@@ -459,39 +414,31 @@ static NSString *ST_VideoDetectorJS(void) {
              referer:(NSString *)referer
                   ua:(NSString *)ua
              webView:(WKWebView *)webView {
+
     NSURL *url = [NSURL URLWithString:urlString];
     if (!url) {
         ST_ShowResultAlert(@"SafariTool", @"Invalid URL");
         return;
     }
 
-    self.urlString = urlString;
-    self.referer = referer;
-    self.ua = ua;
-    self.webView = webView;
+    self.referer = referer ?: @"";
+    self.ua = ua ?: @"";
 
     NSString *base = url.lastPathComponent;
-    if (base.length == 0) {
-        base = @"video";
-    }
+    if (base.length == 0) base = @"video";
     base = [base stringByDeletingPathExtension];
-    if (base.length == 0) {
-        base = @"video";
-    }
+    if (base.length == 0) base = @"video";
     NSString *ts = [NSString stringWithFormat:@"%.0f", [[NSDate date] timeIntervalSince1970]];
-    self.filename = [NSString stringWithFormat:@"%@_%@.mp4", base, ts];
+    self.filename = [NSString stringWithFormat:@"%@_%@", base, ts];
+    self.lastProgress = 0.0;
 
     __weak STHLSDownloader *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         STHLSDownloader *strongSelf = weakSelf;
-        if (!strongSelf) {
-            return;
-        }
+        if (!strongSelf) return;
         UIViewController *top = ST_TopViewController();
-        if (!top) {
-            return;
-        }
-        NSString *msg = [NSString stringWithFormat:@"Preparing HLS stream...\n\n%@\n0%%",
+        if (!top) return;
+        NSString *msg = [NSString stringWithFormat:@"Downloading HLS...\n\n%@\n0%%",
                          strongSelf.filename];
         UIAlertController *alert =
             [UIAlertController alertControllerWithTitle:@"SafariTool (HLS)"
@@ -506,248 +453,164 @@ static NSString *ST_VideoDetectorJS(void) {
         [top presentViewController:alert animated:YES completion:nil];
     });
 
-    [self fetchCookiesAndBegin];
-}
-
-- (void)fetchCookiesAndBegin {
-    __weak STHLSDownloader *weakSelf = self;
-
-    WKWebView *wv = self.webView;
-    if (!wv) {
-        [self beginWithCookieHeader:@""];
-        return;
-    }
-
-    WKHTTPCookieStore *store = wv.configuration.websiteDataStore.httpCookieStore;
-    if (!store) {
-        [self beginWithCookieHeader:@""];
-        return;
-    }
-
-    [store getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            STHLSDownloader *strongSelf = weakSelf;
-            if (!strongSelf) {
-                return;
-            }
-            NSMutableArray *parts = [NSMutableArray array];
-            for (NSHTTPCookie *cookie in cookies) {
-                if (cookie.name.length == 0) continue;
-                [parts addObject:[NSString stringWithFormat:@"%@=%@",
-                                  cookie.name, cookie.value ?: @""]];
-            }
-            NSString *cookieHeader = [parts componentsJoinedByString:@"; "];
-            NSLog(@"[SafariTool] Passing %lu cookies", (unsigned long)cookies.count);
-            [strongSelf beginWithCookieHeader:cookieHeader];
-        });
-    }];
-}
-
-- (void)beginWithCookieHeader:(NSString *)cookieHeader {
-    NSURL *url = [NSURL URLWithString:self.urlString];
-
     NSMutableDictionary *headers = [NSMutableDictionary dictionary];
-    if (self.referer.length > 0) {
-        headers[@"Referer"] = self.referer;
+    if (referer.length > 0) {
+        headers[@"Referer"] = referer;
+        NSURL *refURL = [NSURL URLWithString:referer];
+        if (refURL.scheme.length > 0 && refURL.host.length > 0) {
+            headers[@"Origin"] = [NSString stringWithFormat:@"%@://%@",
+                                  refURL.scheme, refURL.host];
+        }
     }
-    if (self.ua.length > 0) {
-        headers[@"User-Agent"] = self.ua;
+    if (ua.length > 0) {
+        headers[@"User-Agent"] = ua;
     }
-    if (cookieHeader.length > 0) {
-        headers[@"Cookie"] = cookieHeader;
-    }
-    headers[@"Accept"] = @"*/*";
 
     NSDictionary *options = @{ kSTAVHeadersKey: headers };
     AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:options];
-    self.asset = asset;
 
-    __weak STHLSDownloader *weakSelf = self;
-    [asset loadValuesAsynchronouslyForKeys:@[@"tracks", @"duration"]
-                         completionHandler:^{
-        dispatch_async(dispatch_get_main_queue(), ^{
-            STHLSDownloader *strongSelf = weakSelf;
-            if (!strongSelf) {
-                return;
-            }
-            NSError *err = nil;
-            AVKeyValueStatus status = [asset statusOfValueForKey:@"tracks" error:&err];
-            if (status != AVKeyValueStatusLoaded) {
-                NSString *detail = err.localizedDescription ?: @"Unknown";
-                [strongSelf.progressAlert dismissViewControllerAnimated:YES completion:^{
-                    strongSelf.progressAlert = nil;
-                    ST_ShowResultAlert(@"HLS Load Failed", detail);
-                }];
-                return;
-            }
-            [strongSelf beginExportWithAsset:asset];
-        });
-    }];
-}
+    // Use background configuration for maximum compatibility
+    NSString *identifier = [NSString stringWithFormat:@"com.mody.safarittool.hls.%@",
+                            [[NSUUID UUID] UUIDString]];
+    NSURLSessionConfiguration *cfg =
+        [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:identifier];
+    cfg.allowsCellularAccess = YES;
+    cfg.discretionary = NO;
+    cfg.timeoutIntervalForRequest = 60.0;
+    cfg.timeoutIntervalForResource = 7200.0;
 
-- (void)beginExportWithAsset:(AVAsset *)asset {
-    NSArray *presets = [AVAssetExportSession exportPresetsCompatibleWithAsset:asset];
-    NSLog(@"[SafariTool] Compatible presets: %@", presets);
+    self.session = [AVAssetDownloadURLSession sessionWithConfiguration:cfg
+                                                  assetDownloadDelegate:self
+                                                        delegateQueue:[NSOperationQueue mainQueue]];
 
-    NSString *preset = nil;
-
-    if ([presets containsObject:AVAssetExportPresetPassthrough]) {
-        preset = AVAssetExportPresetPassthrough;
-        NSLog(@"[SafariTool] Using Passthrough (fast remux)");
-    } else if ([presets containsObject:AVAssetExportPresetHighestQuality]) {
-        preset = AVAssetExportPresetHighestQuality;
-    } else if ([presets containsObject:AVAssetExportPresetMediumQuality]) {
-        preset = AVAssetExportPresetMediumQuality;
-    } else if (presets.count > 0) {
-        preset = presets.firstObject;
-    }
-
-    if (!preset) {
+    self.task = [self.session assetDownloadTaskWithURLAsset:asset
+                                                 assetTitle:self.filename
+                                           assetArtworkData:nil
+                                                    options:nil];
+    if (!self.task) {
         [self.progressAlert dismissViewControllerAnimated:YES completion:^{
             self.progressAlert = nil;
             ST_ShowResultAlert(@"HLS Download Failed",
-                               @"No compatible export preset found for this HLS stream.");
+                               @"Could not create download task for this stream.");
         }];
         return;
     }
 
-    NSString *outputPath =
-        [NSTemporaryDirectory() stringByAppendingPathComponent:self.filename];
-    [[NSFileManager defaultManager] removeItemAtPath:outputPath error:nil];
-
-    AVAssetExportSession *session =
-        [[AVAssetExportSession alloc] initWithAsset:asset presetName:preset];
-    session.outputURL = [NSURL fileURLWithPath:outputPath];
-
-    NSArray *supportedTypes = session.supportedFileTypes;
-    if ([supportedTypes containsObject:AVFileTypeMPEG4]) {
-        session.outputFileType = AVFileTypeMPEG4;
-    } else if ([supportedTypes containsObject:AVFileTypeQuickTimeMovie]) {
-        session.outputFileType = AVFileTypeQuickTimeMovie;
-    } else if (supportedTypes.count > 0) {
-        session.outputFileType = supportedTypes.firstObject;
-    }
-
-    session.shouldOptimizeForNetworkUse = YES;
-    self.exportSession = session;
-
-    self.progressTimer =
-        [NSTimer scheduledTimerWithTimeInterval:0.5
-                                         target:self
-                                       selector:@selector(updateProgress)
-                                       userInfo:nil
-                                        repeats:YES];
-
-    __weak STHLSDownloader *weakSelf = self;
-    [session exportAsynchronouslyWithCompletionHandler:^{
-        dispatch_async(dispatch_get_main_queue(), ^{
-            STHLSDownloader *strongSelf = weakSelf;
-            if (!strongSelf) {
-                return;
-            }
-            [strongSelf.progressTimer invalidate];
-            strongSelf.progressTimer = nil;
-            [strongSelf handleExportComplete:session outputPath:outputPath];
-        });
-    }];
+    NSLog(@"[SafariTool] Starting AVAssetDownloadTask for %@", urlString);
+    [self.task resume];
 }
 
-- (void)updateProgress {
-    if (!self.exportSession || !self.progressAlert) {
-        return;
+// Called repeatedly with progress
+- (void)URLSession:(NSURLSession *)session
+      assetDownloadTask:(AVAssetDownloadTask *)assetDownloadTask
+ didLoadTimeRange:(CMTimeRange)timeRange
+totalTimeRangesLoaded:(NSArray<NSValue *> *)loadedTimeRanges
+timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
+
+    double expected = CMTimeGetSeconds(timeRangeExpectedToLoad.duration);
+    if (expected <= 0) return;
+
+    double loaded = 0;
+    for (NSValue *v in loadedTimeRanges) {
+        CMTimeRange r = v.CMTimeRangeValue;
+        loaded += CMTimeGetSeconds(r.duration);
     }
-    float progress = self.exportSession.progress;
-    NSString *msg =
-        [NSString stringWithFormat:@"Downloading HLS stream...\n\n%@\n%.0f%%",
-         self.filename, progress * 100.0];
-    self.progressAlert.message = msg;
+    double progress = loaded / expected;
+    if (progress > 1.0) progress = 1.0;
+    if (progress < 0) progress = 0;
+
+    NSString *msg = [NSString stringWithFormat:@"Downloading HLS...\n\n%@\n%.0f%%",
+                     self.filename, progress * 100.0];
+    if (self.progressAlert) {
+        self.progressAlert.message = msg;
+    }
 }
 
-- (void)handleExportComplete:(AVAssetExportSession *)session outputPath:(NSString *)outputPath {
-    AVAssetExportSessionStatus status = session.status;
+// Called when download finishes successfully
+- (void)URLSession:(NSURLSession *)session
+      assetDownloadTask:(AVAssetDownloadTask *)assetDownloadTask
+ didFinishDownloadingToURL:(NSURL *)location {
 
-    NSLog(@"[SafariTool] Export status: %ld, error: %@", (long)status, session.error);
+    NSLog(@"[SafariTool] HLS download finished at: %@", location.path);
 
-    if (status == AVAssetExportSessionStatusCompleted) {
-        [self saveToPhotos:outputPath];
-        return;
-    }
-
-    NSString *errMsg = nil;
-    if (status == AVAssetExportSessionStatusFailed) {
-        errMsg = session.error.localizedDescription ?: @"Unknown failure";
-    } else if (status == AVAssetExportSessionStatusCancelled) {
-        errMsg = [NSString stringWithFormat:
-            @"The stream was cancelled by iOS.\n\nPossible reasons:\n- Video is too long\n- Memory pressure\n- Stream requires DRM"];
-    } else {
-        errMsg = [NSString stringWithFormat:@"Status: %ld", (long)status];
-    }
-    [self.progressAlert dismissViewControllerAnimated:YES completion:^{
-        self.progressAlert = nil;
-        ST_ShowResultAlert(@"HLS Download Failed", errMsg);
-    }];
-}
-
-- (void)saveToPhotos:(NSString *)path {
-    NSURL *fileURL = [NSURL fileURLWithPath:path];
-    __weak STHLSDownloader *weakSelf = self;
-
-    [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
-        [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:fileURL];
-    } completionHandler:^(BOOL success, NSError *error) {
-        STHLSDownloader *strongSelf = weakSelf;
-        if (success) {
-            [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [strongSelf.progressAlert dismissViewControllerAnimated:YES
-                                                             completion:^{
-                    strongSelf.progressAlert = nil;
-                    ST_ShowResultAlert(@"Saved to Photos",
-                                       [NSString stringWithFormat:@"HLS video saved: %@",
-                                        strongSelf.filename]);
-                }];
-            });
-            return;
-        }
-        [strongSelf saveToDocuments:path];
-    }];
-}
-
-- (void)saveToDocuments:(NSString *)path {
+    NSFileManager *fm = [NSFileManager defaultManager];
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,
                                                           NSUserDomainMask, YES);
     NSString *docs = paths.firstObject ?: NSTemporaryDirectory();
     NSString *dir = [docs stringByAppendingPathComponent:@"SafariTool"];
-
-    NSFileManager *fm = [NSFileManager defaultManager];
     [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
 
-    NSString *dst = [dir stringByAppendingPathComponent:self.filename];
+    NSString *dst = [dir stringByAppendingPathComponent:
+                     [NSString stringWithFormat:@"%@.movpkg", self.filename]];
+
+    [fm removeItemAtPath:dst error:nil];
+
     NSError *moveErr = nil;
-    [fm moveItemAtPath:path toPath:dst error:&moveErr];
+    BOOL moved = [fm moveItemAtURL:location
+                             toURL:[NSURL fileURLWithPath:dst]
+                             error:&moveErr];
+
+    __block NSString *resultTitle;
+    __block NSString *resultMsg;
+    if (moved) {
+        resultTitle = @"Saved to Files";
+        resultMsg = [NSString stringWithFormat:
+                     @"HLS video saved.\n\nFile: %@.movpkg\n\nOpen with VLC or the Files app to play it.",
+                     self.filename];
+    } else {
+        resultTitle = @"Save Failed";
+        resultMsg = moveErr.localizedDescription ?: @"Unknown error";
+    }
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [self.progressAlert dismissViewControllerAnimated:YES completion:^{
             self.progressAlert = nil;
-            if (moveErr) {
-                ST_ShowResultAlert(@"Save Failed", moveErr.localizedDescription);
-                return;
-            }
-            ST_ShowResultAlert(@"Saved to Files",
-                               [NSString stringWithFormat:@"Saved as %@", self.filename]);
+            ST_ShowResultAlert(resultTitle, resultMsg);
         }];
     });
 }
 
+// Called when download completes (success or failure)
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didCompleteWithError:(NSError *)error {
+    if (!error) return;
+    if (error.code == NSURLErrorCancelled) return;
+
+    NSLog(@"[SafariTool] HLS download task error: %@", error);
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.progressAlert) {
+            [self.progressAlert dismissViewControllerAnimated:YES completion:^{
+                self.progressAlert = nil;
+                ST_ShowResultAlert(@"HLS Download Failed",
+                                   error.localizedDescription ?: @"Unknown error");
+            }];
+        } else {
+            ST_ShowResultAlert(@"HLS Download Failed",
+                               error.localizedDescription ?: @"Unknown error");
+        }
+    });
+}
+
 - (void)cancel {
-    if (self.exportSession) {
-        [self.exportSession cancelExport];
+    if (self.task) {
+        [self.task cancel];
+        self.task = nil;
+    }
+    if (self.session) {
+        [self.session invalidateAndCancel];
+        self.session = nil;
     }
     [self.progressTimer invalidate];
     self.progressTimer = nil;
 }
 
 @end
+
+// ============================================================
+// Direct (MP4) Downloader
+// ============================================================
 
 @interface STDownloadManager : NSObject <NSURLSessionDownloadDelegate>
 @property (nonatomic, strong) NSURLSession *session;
@@ -767,9 +630,7 @@ static NSString *ST_VideoDetectorJS(void) {
 
 - (instancetype)init {
     self = [super init];
-    if (self) {
-        [self recreateSession];
-    }
+    if (self) [self recreateSession];
     return self;
 }
 
@@ -788,12 +649,8 @@ static NSString *ST_VideoDetectorJS(void) {
     }
 
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
-    if (referer.length > 0) {
-        [req setValue:referer forHTTPHeaderField:@"Referer"];
-    }
-    if (ua.length > 0) {
-        [req setValue:ua forHTTPHeaderField:@"User-Agent"];
-    }
+    if (referer.length > 0) [req setValue:referer forHTTPHeaderField:@"Referer"];
+    if (ua.length > 0) [req setValue:ua forHTTPHeaderField:@"User-Agent"];
 
     __weak STDownloadManager *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -834,9 +691,7 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
     NSString *msg = [NSString stringWithFormat:@"Downloading %@...\n\n%.0f%%",
                      name, progress * 100.0];
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (self.progressAlert) {
-            self.progressAlert.message = msg;
-        }
+        if (self.progressAlert) self.progressAlert.message = msg;
     });
 }
 
@@ -1025,9 +880,7 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
         NSInteger idx = 1;
         for (NSString *url in valid) {
             NSString *shortName = url.lastPathComponent;
-            if (shortName.length > 50) {
-                shortName = [shortName substringToIndex:50];
-            }
+            if (shortName.length > 50) shortName = [shortName substringToIndex:50];
             NSString *title = [NSString stringWithFormat:@"%ld. %@", (long)idx, shortName];
             [sheet addAction:[UIAlertAction actionWithTitle:title
                                                       style:UIAlertActionStyleDefault
@@ -1087,8 +940,7 @@ static void ST_InstallScripts(WKWebView *wv) {
                                     forMainFrameOnly:NO];
             [ucc addUserScript:script];
         }
-    } @catch (NSException *e) {
-    }
+    } @catch (NSException *e) {}
 }
 
 %group STWebKit
@@ -1097,17 +949,13 @@ static void ST_InstallScripts(WKWebView *wv) {
 
 - (id)initWithFrame:(CGRect)frame configuration:(id)configuration {
     id r = %orig;
-    if (r) {
-        ST_InstallScripts((WKWebView *)r);
-    }
+    if (r) ST_InstallScripts((WKWebView *)r);
     return r;
 }
 
 - (void)setNavigationDelegate:(id<WKNavigationDelegate>)delegate {
     %orig;
-    if (delegate) {
-        ST_PatchDelegateClass([(NSObject *)delegate class]);
-    }
+    if (delegate) ST_PatchDelegateClass([(NSObject *)delegate class]);
 }
 
 %end
@@ -1116,21 +964,11 @@ static void ST_InstallScripts(WKWebView *wv) {
 
 %ctor {
     @autoreleasepool {
-        if (![[[NSProcessInfo processInfo] processName] isEqualToString:@"MobileSafari"]) {
-            return;
-        }
-        if (![[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){16, 0, 0}]) {
-            return;
-        }
-        if (!objc_getClass("WKWebView")) {
-            return;
-        }
-        if (!ST_GuardBegin()) {
-            return;
-        }
-        if (!ST_Pref(@"SafariTool_Enabled", YES)) {
-            return;
-        }
+        if (![[[NSProcessInfo processInfo] processName] isEqualToString:@"MobileSafari"]) return;
+        if (![[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){16, 0, 0}]) return;
+        if (!objc_getClass("WKWebView")) return;
+        if (!ST_GuardBegin()) return;
+        if (!ST_Pref(@"SafariTool_Enabled", YES)) return;
         %init(STWebKit);
     }
 }
