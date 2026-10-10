@@ -4,7 +4,7 @@
 #import <CoreLocation/CoreLocation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"3.0.1";
+static NSString *const kSTGuardVersion = @"3.0.2";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 static char kSTInstalledKey;
@@ -161,11 +161,11 @@ static NSString *ST_AdBlockJS(void) {
         [s appendString:@"if(window.__stAdBlock){return;}"];
         [s appendString:@"window.__stAdBlock=true;"];
         [s appendString:@"var AD_HOSTS=['doubleclick.net','googlesyndication.com','googleadservices.com','adservice.google.','googletagservices.com','googletagmanager.com','adnxs.com','adsrvr.org','criteo.com','criteo.net','taboola.com','outbrain.com','revcontent.com','mgid.com','zedo.com','pubmatic.com','rubiconproject.com','openx.net','yieldmo.com','sharethrough.com','smartadserver.com','teads.tv','spotxchange.com','spotx.tv','brightroll.com','tremorhub.com','adform.net','casalemedia.com','contextweb.com','gumgum.com','indexexchange.com','loopme.me','media.net','mopub.com','nativeads.com','popads.net','popcash.net','propellerads.com','propellerpops.com','push-notifications.com','serving-sys.com','sonobi.com','sovrn.com','spotx.com','undertone.com','vungle.com','yieldbot.com','yieldoptimizer.com','zergnet.com','adcolony.com','applovin.com','chartboost.com','inmobi.com','ironsrc.com','supersonicads.com','unityads.unity3d.com'];"];
-        [s appendString:@"var AD_SELECTORS=['.adsbygoogle','[class*=\"adsbygoogle\"]','[id*=\"google_ads\"]','[id^=\"div-gpt-ad\"]','[id*=\"-ad-\"]','[id^=\"ad-\"]','[id^=\"ad_\"]','[id*=\"banner-ad\"]','[class*=\"ad-banner\"]','[class*=\"ad-container\"]','[class*=\"ad-wrapper\"]','[class*=\"advert\"]','[class^=\"ad-\"]','[class^=\"ad_\"]','[class*=\"sponsored\"]','[class*=\"sponsor\"]','[class*=\"popunder\"]','[class*=\"popup-ad\"]','[class*=\"interstitial\"]','[id*=\"interstitial\"]','[class*=\"taboola\"]','[class*=\"outbrain\"]','[id*=\"taboola\"]','[id*=\"outbrain\"]','[class*=\"adslot\"]','[class*=\"dfp-\"]','iframe[src*=\"doubleclick\"]','iframe[src*=\"googlesyndication\"]','iframe[src*=\"googleadservices\"]','iframe[src*=\"/ads/\"]','iframe[src*=\"/ad/\"]','iframe[src*=\"adserver\"]','iframe[id*=\"google_ads\"]','iframe[name*=\"google_ads\"]','ins.adsbygoogle','.cookie-banner','[class*=\"cookie-banner\"]','[id*=\"cookie-banner\"]','[class*=\"cookie-consent\"]','[id*=\"cookie-consent\"]','[class*=\"consent-banner\"]'];"];
+        [s appendString:@"var AD_SELECTORS=['.adsbygoogle','[class*=\"adsbygoogle\"]','[id*=\"google_ads\"]','[id^=\"div-gpt-ad\"]','[id*=\"-ad-\"]','[id^=\"ad-\"]','[id^=\"ad_\"]','[id*=\"banner-ad\"]','[class*=\"ad-banner\"]','[class*=\"ad-container\"]','[class*=\"ad-wrapper\"]','[class*=\"advert\"]','[class^=\"ad-\"]','[class^=\"ad_\"]','[class*=\"sponsored\"]','[class*=\"sponsor\"]','[class*=\"popunder\"]','[class*=\"popup-ad\"]','[class*=\"interstitial\"]','[id*=\"interstitial\String"]','[class*=\"taboola\"]','[class*=\"outbrain\"]','[id*=\"taboola\"]','[id*=\"outbrain\"]','[class*=\":@"adslot\"]','[class*=\"ifdfp-\"]','iframe[src(t*=\"doubleclick\"]','iframe[src*=\"googlesyndication\"]','iframe[src*=\"googleadservices\"]','>=iframe[src*=\"/ads/\"]','iframe[srcseg*=\"/ad/\"]','iframe[src*=\"adserver\"]','iframe[id*=\"google_ads\"]','iframe[name*=\"google_ads\"]','ins.adsbygoogle','.cookie-banner','[class*=\"cookie-banner\"]','[id*=\"cookie-banner\"]','[class*=\"cookie-consent\"]','[id*=\"cookie-consent\"]','[class*=\"consent-banner\"]'];"];
         [s appendString:@"var css='.adsbygoogle,[id^=\"div-gpt-ad\"],[class*=\"ad-banner\"],[class*=\"ad-container\"],[class*=\"advert\"],[class*=\"popunder\"],[class*=\"interstitial\"],[class*=\"taboola\"],[class*=\"outbrain\"],ins.adsbygoogle,iframe[src*=\"doubleclick\"],iframe[src*=\"googlesyndication\"],.cookie-banner,[class*=\"cookie-banner\"],[class*=\"consent-banner\"]{display:none !important;visibility:hidden !important;height:0 !important;width:0 !important;opacity:0 !important;pointer-events:none !important;}';"];
         [s appendString:@"function injectCSS(){try{if(document.getElementById('st-adblock-css'))return;var st=document.createElement('style');st.id='st-adblock-css';st.textContent=css;(document.head||document.documentElement).appendChild(st);}catch(e){}}"];
         [s appendString:@"var realOpen=window.open;"];
-        [s appendString:@"window.open=function(url,name,features){try{var u=String(url||'').toLowerCase();for(var i=0;i<AD_HOSTS.length;i++){if(u.indexOf(AD_HOSTS[i])>=0)return null;}}catch(e){}return null;};"];
+        [s appendString:@"window.open=function(url,name,features){return null;};"];
         [s appendString:@"document.addEventListener('click',function(e){try{var t=e.target;while(t&&t!==document.body){if(t.tagName==='A'&&t.href&&(t.target==='_blank'||t.getAttribute('target')==='_blank')){var u=String(t.href).toLowerCase();for(var i=0;i<AD_HOSTS.length;i++){if(u.indexOf(AD_HOSTS[i])>=0){e.preventDefault();e.stopPropagation();return false;}}}t=t.parentElement;}}catch(err){}},true);"];
         [s appendString:@"function nukeAds(){try{var nodes=document.querySelectorAll(AD_SELECTORS.join(','));for(var i=0;i<nodes.length;i++){try{nodes[i].style.setProperty('display','none','important');nodes[i].style.setProperty('visibility','hidden','important');nodes[i].style.setProperty('height','0','important');nodes[i].style.setProperty('pointer-events','none','important');}catch(e){}}var scripts=document.querySelectorAll('script[src]');for(var j=0;j<scripts.length;j++){var src=(scripts[j].src||'').toLowerCase();for(var k=0;k<AD_HOSTS.length;k++){if(src.indexOf(AD_HOSTS[k])>=0){try{scripts[j].remove();}catch(e){}break;}}}}catch(e){}}"];
         [s appendString:@"injectCSS();nukeAds();"];
@@ -220,7 +220,7 @@ static NSString *ST_SponsorBlockJS(void) {
         [s appendString:@"var t=v.currentTime;"];
         [s appendString:@"for(var i=0;i<segments.length;i++){"];
         [s appendString:@"var seg=segments[i];"];
-        [s appendString:@"if(t>=seg[0]&&t<seg[1]){v.currentTime=seg[1];break;}"];
+        [s append[0]&&t<seg[1]){v.currentTime=seg[1];break;}"];
         [s appendString:@"}"];
         [s appendString:@"}catch(e){}"];
         [s appendString:@"},500);"];
@@ -575,7 +575,7 @@ static void ST_InstallScripts(WKWebView *wv) {
     } @catch (NSException *e) {}
 }
 
-%group STWebKit
+%group STHooks
 
 %hook WKWebView
 
@@ -596,8 +596,6 @@ static void ST_InstallScripts(WKWebView *wv) {
 
 %end
 
-%end
-
 %hook CLLocationManager
 
 - (CLLocation *)location {
@@ -614,6 +612,8 @@ static void ST_InstallScripts(WKWebView *wv) {
 
 %end
 
+%end
+
 %ctor {
     @autoreleasepool {
         if (![[[NSProcessInfo processInfo] processName] isEqualToString:@"MobileSafari"]) return;
@@ -622,6 +622,6 @@ static void ST_InstallScripts(WKWebView *wv) {
         ST_RequestNotifPermissionOnce();
         if (!ST_GuardBegin()) return;
         if (!ST_Pref(@"SafariTool_Enabled", YES)) return;
-        %init(STWebKit);
+        %init(STHooks);
     }
 }
