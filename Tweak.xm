@@ -5,7 +5,7 @@
 #import <UserNotifications/UserNotifications.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"3.3.0";
+static NSString *const kSTGuardVersion = @"3.4.0";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 static char kSTInstalledKey;
@@ -14,17 +14,14 @@ typedef void (^STDecisionHandler)(WKNavigationActionPolicy, WKWebpagePreferences
 
 static void ST_RequestNotifPermissionOnce(void) {
     @try {
-        CFStringRef appID = CFSTR("com.mody.safarittool");
-        CFStringRef key = CFSTR("NotifAsked");
-        Boolean exists = false;
-        Boolean already = CFPreferencesGetAppBooleanValue(key, appID, &exists);
-        if (exists && already) return;
+        NSUserDefaults *std = [NSUserDefaults standardUserDefaults];
+        if ([std boolForKey:@"ST_NotifAsked"]) return;
+        [std setBool:YES forKey:@"ST_NotifAsked"];
+        [std synchronize];
         UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
         if (center) {
             [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge) completionHandler:^(BOOL granted, NSError *error) {}];
         }
-        CFPreferencesSetValue(key, kCFBooleanTrue, appID, kCFPreferencesAnyUser, kCFPreferencesAnyHost);
-        CFPreferencesSynchronize(appID, kCFPreferencesAnyUser, kCFPreferencesAnyHost);
     } @catch (NSException *e) {}
 }
 
@@ -153,12 +150,24 @@ static NSString *ST_AdBlockJS(void) {
         [s appendString:@"(function(){"];
         [s appendString:@"if(window.__stAdBlock){return;}"];
         [s appendString:@"window.__stAdBlock=true;"];
-        [s appendString:@"var AH=['doubleclick.net','googlesyndication.com','googleadservices.com','adservice.google.','googletagservices.com','googletagmanager.com','adnxs.com','adsrvr.org','criteo.com','criteo.net','taboola.com','outbrain.com','revcontent.com','mgid.com','zedo.com','pubmatic.com','rubiconproject.com','openx.net','yieldmo.com','sharethrough.com','smartadserver.com','teads.tv','spotxchange.com','spotx.tv','brightroll.com','tremorhub.com','adform.net','casalemedia.com','contextweb.com','gumgum.com','indexexchange.com','loopme.me','media.net','mopub.com','nativeads.com','popads.net','popcash.net','propellerads.com','propellerpops.com','serving-sys.com','sonobi.com','sovrn.com','spotx.com','undertone.com','vungle.com','yieldbot.com','yieldoptimizer.com','zergnet.com','adcolony.com','applovin.com','chartboost.com','inmobi.com','ironsrc.com','supersonicads.com','profitableratecpm.com','clickadu.com','hilltopads.net','exoclick.com','juicyads.com','trafficjunky.com','adsterra.com','adcash.com','bidvertiser.com','popmyads.com','adspyglass.com','adskeeper.com','admaven.com','monetag.com','onclickalgo.com','onclickmax.com'];"];
+        [s appendString:@"var AH=['doubleclick.net','googlesyndication.com','googleadservices.com','adservice.google.','googletagservices.com','googletagmanager.com','adnxs.com','adsrvr.org','criteo.com','criteo.net','taboola.com','outbrain.com','revcontent.com','mgid.com','zedo.com','pubmatic.com','rubiconproject.com','openx.net','yieldmo.com','sharethrough.com','smartadserver.com','teads.tv','spotxchange.com','spotx.tv','brightroll.com','tremorhub.com','adform.net','casalemedia.com','contextweb.com','gumgum.com','indexexchange.com','loopme.me','media.net','mopub.com','nativeads.com','popads.net','popcash.net','propellerads.com','propellerpops.com','serving-sys.com','sonobi.com','sovrn.com','spotx.com','undertone.com','vungle.com','yieldbot.com','yieldoptimizer.com','zergnet.com','adcolony.com','applovin.com','chartboost.com','inmobi.com','ironsrc.com','supersonicads.com','profitableratecpm.com','clickadu.com','hilltopads.net','exoclick.com','juicyads.com','trafficjunky.com','adsterra.com','adcash.com','bidvertiser.com','popmyads.com','adspyglass.com','adskeeper.com','admaven.com','monetag.com','onclickalgo.com','onclickmax.com','thepiratebay','etargetnet.com','magsrv.com','tsyndicate.com','mgid.com','zemanta.com','adgebra.co.in'];"];
         [s appendString:@"var AS=['.adsbygoogle','ins.adsbygoogle','[class*=\"adsbygoogle\"]','[id*=\"google_ads\"]','[id^=\"div-gpt-ad\"]','[id^=\"ad-\"]','[id^=\"ad_\"]','[id*=\"banner-ad\"]','[class*=\"ad-banner\"]','[class*=\"ad-container\"]','[class*=\"ad-wrapper\"]','[class*=\"advert\"]','[class^=\"ad-\"]','[class^=\"ad_\"]','[class*=\"sponsored\"]','[class*=\"sponsor\"]','[class*=\"popunder\"]','[class*=\"popup-ad\"]','[class*=\"interstitial\"]','[id*=\"interstitial\"]','[class*=\"taboola\"]','[class*=\"outbrain\"]','[id*=\"taboola\"]','[id*=\"outbrain\"]','[class*=\"adslot\"]','[class*=\"dfp-\"]','iframe[src*=\"doubleclick\"]','iframe[src*=\"googlesyndication\"]','iframe[src*=\"googleadservices\"]','iframe[src*=\"/ads/\"]','iframe[src*=\"/ad/\"]','iframe[src*=\"adserver\"]','iframe[id*=\"google_ads\"]','iframe[name*=\"google_ads\"]','.cookie-banner','[class*=\"cookie-banner\"]','[id*=\"cookie-banner\"]','[class*=\"cookie-consent\"]','[id*=\"cookie-consent\"]','[class*=\"consent-banner\"]'];"];
         [s appendString:@"var CSS='.adsbygoogle,ins.adsbygoogle,[id^=\"div-gpt-ad\"],[class*=\"ad-banner\"],[class*=\"ad-container\"],[class*=\"advert\"],[class*=\"popunder\"],[class*=\"interstitial\"],[class*=\"taboola\"],[class*=\"outbrain\"],.cookie-banner,[class*=\"cookie-banner\"],[class*=\"consent-banner\"]{display:none !important;visibility:hidden !important;height:0 !important;width:0 !important;opacity:0 !important;pointer-events:none !important;}';"];
         [s appendString:@"function icss(){try{if(document.getElementById('st-adblock-css'))return;var st=document.createElement('style');st.id='st-adblock-css';st.textContent=CSS;(document.head||document.documentElement).appendChild(st);}catch(e){}}"];
-        [s appendString:@"try{window.open=function(){return null;};}catch(e){}"];
-        [s appendString:@"var KILL_WORDS=['GET BONUS','BONUS','CLAIM','REWARD','WINNER','CONGRAT','SPIN','LUCKY','عجل','مكافأة','جائزة','اربح'];"];
+        [s appendString:@"var KILL_WORDS=['GET BONUS','BONUS','CLAIM','REWARD','WINNER','CONGRAT','SPIN','LUCKY','عجل','مكافأة','جائزة','اربح','CLAIM NOW'];"];
+        [s appendString:@"try{"];
+        [s appendString:@"var ro=window.open;window.open=function(){return null;};"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"try{"];
+        [s appendString:@"var defineLoc=Object.getOwnPropertyDescriptor(window,'location');"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"function isAdUrl(u){"];
+        [s appendString:@"try{"];
+        [s appendString:@"var l=String(u||'').toLowerCase();"];
+        [s appendString:@"for(var i=0;i<AH.length;i++){if(l.indexOf(AH[i])>=0)return true;}"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"return false;"];
+        [s appendString:@"}"];
         [s appendString:@"function killOverlays(){"];
         [s appendString:@"try{"];
         [s appendString:@"var all=document.querySelectorAll('div,iframe,ins,section,aside,span,a');"];
@@ -167,21 +176,21 @@ static NSString *ST_AdBlockJS(void) {
         [s appendString:@"try{"];
         [s appendString:@"var st=window.getComputedStyle(el);"];
         [s appendString:@"if(st.position!=='fixed'&&st.position!=='absolute')continue;"];
-        [s appendString:@"var z=parseInt(st.zIndex)||0;"];
+        [s appendString:@"var z=parseInt(st.zIndex)||String0;"];
         [s appendString:@"if(z<100)continue;"];
         [s appendString:@"var txt=((el.innerText||'')+'').toUpperCase();"];
         [s appendString:@"var hit=false;"];
         [s appendString:@"for(var w=0;w<KILL_WORDS.length;w++){if(txt.indexOf(KILL_WORDS[w])>=0){hit=true;break;}}"];
         [s appendString:@"if(hit){try{el.remove();}catch(e){}continue;}"];
         [s appendString:@"var rt=el.getBoundingClientRect();"];
-        [s appendString:@"var vw=window.innerWidth||1;var vh=window.innerHeight||1;"];
-        [s appendString:@"var cov=(rt.width*rt.height)/(vw*vh);"];
-        [s appendString:@"if(cov>0.30&&z>=2000){try{el.remove();}catch(e){}}"];
+        [s appendString:@"var vw:@"=window.innerWidth||1;var vh=window.innerfunctionHeight||1;"];
+        [s appendString:@"var cov n=(rt.width*rt.height)/(vw*vh);uke"];
+        [s appendString:@"()if(cov>0.30&&z>=2000){try{el.remove();}catch(e){}}"];
         [s appendString:@"}catch(e){}"];
         [s appendString:@"}"];
         [s appendString:@"}catch(e){}"];
         [s appendString:@"}"];
-        [s appendString:@"function nuke(){"];
+        [s append{"];
         [s appendString:@"try{"];
         [s appendString:@"var nodes=document.querySelectorAll(AS.join(','));"];
         [s appendString:@"for(var i=0;i<nodes.length;i++){try{nodes[i].style.setProperty('display','none','important');nodes[i].style.setProperty('visibility','hidden','important');nodes[i].style.setProperty('height','0','important');nodes[i].style.setProperty('pointer-events','none','important');}catch(e){}}"];
@@ -190,7 +199,8 @@ static NSString *ST_AdBlockJS(void) {
         [s appendString:@"}catch(e){}"];
         [s appendString:@"killOverlays();"];
         [s appendString:@"}"];
-        [s appendString:@"document.addEventListener('pointerdown',function(e){try{var t=e.target;if(!t||!t.closest)return;var a=t.closest('a');if(!a)return;var u=(a.href||'').toLowerCase();for(var i=0;i<AH.length;i++){if(u.indexOf(AH[i])>=0){e.preventDefault();e.stopImmediatePropagation();return false;}}}catch(err){}},true);"];
+        [s appendString:@"document.addEventListener('pointerdown',function(e){try{var t=e.target;if(!t)return;var a=t.closest?t.closest('a'):null;if(!a)return;var u=(a.href||'').toLowerCase();for(var i=0;i<AH.length;i++){if(u.indexOf(AH[i])>=0){e.preventDefault();e.stopImmediatePropagation();return false;}}}catch(err){}},true);"];
+        [s appendString:@"document.addEventListener('click',function(e){try{var t=e.target;if(!t)return;var a=t.closest?t.closest('a'):null;if(!a)return;if(a.target==='_blank'){var u=(a.href||'').toLowerCase();for(var i=0;i<AH.length;i++){if(u.indexOf(AH[i])>=0){e.preventDefault();e.stopImmediatePropagation();return false;}}}}catch(err){}},true);"];
         [s appendString:@"icss();nuke();"];
         [s appendString:@"var tmr=null;function sc(){if(tmr)return;tmr=setTimeout(function(){tmr=null;icss();nuke();},250);}"];
         [s appendString:@"try{new MutationObserver(sc).observe(document.documentElement,{childList:true,subtree:true});}catch(e){}"];
@@ -210,15 +220,25 @@ static NSString *ST_BGPlayJS(void) {
         [s appendString:@"(function(){"];
         [s appendString:@"if(window.__stBGPlay){return;}"];
         [s appendString:@"window.__stBGPlay=true;"];
-        [s appendString:@"window.__stUserPaused=false;"];
+        [s appendString:@"window.__stFocused=true;"];
+        [s appendString:@"window.addEventListener('focus',function(){window.__stFocused=true;},true);"];
+        [s appendString:@"window.addEventListener('blur',function(){window.__stFocused=false;},true);"];
+        [s appendString:@"window.addEventListener('pageshow',function(){window.__stFocused=true;},true);"];
+        [s appendString:@"window.addEventListener('pagehide',function(){window.__stFocused=false;},true);"];
         [s appendString:@"try{Object.defineProperty(document,'hidden',{get:function(){return false;},configurable:true});}catch(e){}"];
         [s appendString:@"try{Object.defineProperty(document,'visibilityState',{get:function(){return 'visible';},configurable:true});}catch(e){}"];
         [s appendString:@"try{Object.defineProperty(document,'webkitHidden',{get:function(){return false;},configurable:true});}catch(e){}"];
         [s appendString:@"try{Object.defineProperty(document,'webkitVisibilityState',{get:function(){return 'visible';},configurable:true});}catch(e){}"];
         [s appendString:@"['visibilitychange','webkitvisibilitychange'].forEach(function(n){document.addEventListener(n,function(e){e.stopImmediatePropagation();},true);window.addEventListener(n,function(e){e.stopImmediatePropagation();},true);});"];
-        [s appendString:@"document.addEventListener('click',function(e){try{var t=e.target;if(!t||!t.closest)return;var v=t.closest('video');var ctrls=t.closest('.ytp-play-button,.ytp-play-button-playlist,.html5-main-video,.html5-video-player');if(v||ctrls){setTimeout(function(){try{var vv=document.querySelector('video');if(vv){window.__stUserPaused=vv.paused;}}catch(x){}},80);}}catch(x){}},true);"];
-        [s appendString:@"document.addEventListener('pause',function(e){try{if(window.__stUserPaused)return;if(e.target&&e.target.tagName==='VIDEO'){var v=e.target;setTimeout(function(){try{if(!window.__stUserPaused){v.play();}}catch(x){}},120);}}catch(x){}},true);"];
-        [s appendString:@"document.addEventListener('play',function(e){try{if(e.target&&e.target.tagName==='VIDEO'){window.__stUserPaused=false;}}catch(x){}},true);"];
+        [s appendString:@"document.addEventListener('pause',function(e){"];
+        [s appendString:@"try{"];
+        [s appendString:@"if(window.__stFocused)return;"];
+        [s appendString:@"if(e.target&&e.target.tagName==='VIDEO'){"];
+        [s appendString:@"var v=e.target;"];
+        [s appendString:@"setTimeout(function(){try{if(!window.__stFocused){v.play();}}catch(x){}},120);"];
+        [s appendString:@"}"];
+        [s appendString:@"}catch(x){}"];
+        [s appendString:@"},true);"];
         [s appendString:@"})();"];
         js = [s copy];
     });
@@ -249,8 +269,19 @@ static NSString *ST_SponsorBlockJS(void) {
         [s appendString:@"var videoId=getVid();"];
         [s appendString:@"if(!videoId)return;"];
         [s appendString:@"var segments=[];"];
-        [s appendString:@"var api='https://sponsor.ajay.app/api/skipSegments?videoID='+videoId;"];
-        [s appendString:@"try{fetch(api,{method:'GET',mode:'cors',credentials:'omit'}).then(function(r){return r.json();}).then(function(d){if(Array.isArray(d)){for(var i=0;i<d.length;i++){var seg=d[i];if(seg&&seg.segment&&seg.segment.length>=2){segments.push([seg.segment[0],seg.segment[1]]);}}}}).catch(function(){});}catch(e){}"];
+s        [s appendString:@"try{"];
+ append        [s appendString:@"var xhr=new XMLHttpRequest();String"];
+        [s appendString:@"xhr.open('GET:@"','https://sponsor.ajayx.app/api/skipSegments?videoID='+videoId,true);"];
+        [s appendString:@"xhr.onreadystatechange=function(){"];
+        [s appendString:@"if(xhr.readyState!==4)return;"];
+        [s appendString:@"if(xhr.status!==200)return;"];
+        [s appendString:@"try{"];
+        [s appendString:@"var d=JSON.parse(xhr.responseText);"];
+        [s appendString:@"if(Array.isArray(d)){for(var i=0;i<d.length;i++){var seg=d[i];if(seg&&seg.segment&&seg.segment.length>=2){segments.push([seg.segment[0],seg.segment[1]]);}}}"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"};"];
+        [hr.send();"];
+        [s appendString:@"}catch(e){}"];
         [s appendString:@"setInterval(function(){"];
         [s appendString:@"try{"];
         [s appendString:@"var v=document.querySelector('video');"];
@@ -414,13 +445,13 @@ static NSString *ST_VideoDetectorJS(void) {
         self.layer.shadowOpacity = 0.4; self.layer.shadowRadius = 6.0;
         self.layer.shadowOffset = CGSizeMake(0, 2);
         self.userInteractionEnabled = YES;
-        _label = [[UILabel alloc] initWithFrame:CGRectMake(12, 0, 100, 40)];
-        _label.textColor = [UIColor whiteColor];
+        _labelUIButton = button [[UILabel alloc] initWithFrame:CGRectMake(With12, 0, 100, 40Type)];
+        _label.textColor = [UIColor white:Color];
         _label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
         _label.textAlignment = NSTextAlignmentCenter;
         _label.text = @"0%";
         [self addSubview:_label];
-        UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        UIButton *closeBtn = [UIButtonTypeSystem];
         closeBtn.frame = CGRectMake(110, 6, 28, 28);
         [closeBtn setTitle:@"\u00D7" forState:UIControlStateNormal];
         [closeBtn setTitleColor:[UIColor colorWithWhite:0.85 alpha:1.0] forState:UIControlStateNormal];
