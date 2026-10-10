@@ -4,7 +4,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"1.0.1";
+static NSString *const kSTGuardVersion = @"1.0.2";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -780,9 +780,8 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
         STHLSDownloader *strongSelf = weakSelf;
         if (!strongSelf) return;
 
-        [[NSFileManager defaultManager] removeItemAtPath:dstPath error:nil];
-
         if (success) {
+            [[NSFileManager defaultManager] removeItemAtPath:dstPath error:nil];
             [[NSFileManager defaultManager] removeItemAtPath:movpkgPath error:nil];
             [[STFloatingProgress shared] hide];
             ST_ShowResultAlert(@"Saved to Photos",
@@ -791,13 +790,19 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
             return;
         }
 
-        NSLog(@"[SafariTool] Photos failed: %@", error);
+        NSLog(@"[SafariTool] Photos failed: %@ - falling back to Files", error);
         [strongSelf saveToFilesDirectly:dstPath movpkgPath:movpkgPath newName:newName];
     }];
 }
 
 - (void)saveToFilesDirectly:(NSString *)srcPath movpkgPath:(NSString *)movpkgPath newName:(NSString *)newName {
     NSFileManager *fm = [NSFileManager defaultManager];
+
+    if (![fm fileExistsAtPath:srcPath]) {
+        [[STFloatingProgress shared] hide];
+        ST_ShowResultAlert(@"Save Failed", @"Temp file missing");
+        return;
+    }
 
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,
                                                           NSUserDomainMask, YES);
