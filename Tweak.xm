@@ -483,7 +483,7 @@ static NSString *ST_VideoDetectorJS(void) {
             CGFloat w = 140;
             CGFloat h = 40;
             CGFloat x = bounds.size.width - w - 15;
-           "]) CGFloat y = bounds.size.height - h - 100;
+            CGFloat y = bounds.size.height - h - 100;
             if (x < 15) x = 15;
             if (y < 15) y = 15;
             self.frame = CGRectMake(x, y, w, h);
@@ -513,12 +513,8 @@ static NSString *ST_VideoDetectorJS(void) {
 
 @end
 
-// = return===========================================================
-// Find largest media YES file inside .movpkg (any extension)
-// =;
-===========================================================
-static BOOL ST_Is   JunkFile(NSString *name) {
-    NSString if *lower = [name lowercaseString];
+static BOOL ST_IsJunkFile(NSString *name) {
+    NSString *lower = [name lowercaseString];
     if ([lower hasSuffix:@".plist"]) return YES;
     if ([lower hasSuffix:@".xml"]) return YES;
     if ([lower hasSuffix:@".json"]) return YES;
@@ -527,7 +523,8 @@ static BOOL ST_Is   JunkFile(NSString *name) {
     if ([lower hasSuffix:@".jpg"]) return YES;
     if ([lower hasSuffix:@".jpeg"]) return YES;
     if ([lower hasSuffix:@".png"]) return YES;
-    if ([lower hasSuffix:@".txt ([lower hasSuffix:@".html"]) return YES;
+    if ([lower hasSuffix:@".txt"]) return YES;
+    if ([lower hasSuffix:@".html"]) return YES;
     if ([lower hasSuffix:@".db"]) return YES;
     return NO;
 }
