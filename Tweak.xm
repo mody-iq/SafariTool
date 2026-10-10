@@ -857,23 +857,24 @@ static void ST_InstallScripts(WKWebView *wv) {
 }
 
 %group STWebKit
-%hook WKWebView
-- (id)initWithFrame:(CGRect)frame configuration:(id)configuration {
-    id r = %orig; if (r) ST_InstallScripts((WKWebView *)r); return r;
-}
-- (void)setNavigationDelegate:(id<WKNavigationDelegate>)delegate {
-    %orig; if (delegate) ST_PatchDelegateClass([(NSObject *)delegate class]);
-}
-%end
-%end
 
-%ctor {
-    @autoreleasepool {
-        if (![[[NSProcessInfo processInfo] processName] isEqualToString:@"MobileSafari"]) return;
-        if (![[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){16, 0, 0}]) return;
-        if (!objc_getClass("WKWebView")) return;
-        if (!ST_GuardBegin()) return;
-        if (!ST_Pref(@"SafariTool_Enabled", YES)) return;
-        %init(STWebKit);
+%hook WKWebView
+
+- (id)initWithFrame:(CGRect)frame configuration:(id)configuration {
+    id r = %orig;
+    if (r) {
+        ST_InstallScripts((WKWebView *)r);
+    }
+    return r;
+}
+
+- (void)setNavigationDelegate:(id<WKNavigationDelegate>)delegate {
+    %orig;
+    if (delegate) {
+        ST_PatchDelegateClass([(NSObject *)delegate class]);
     }
 }
+
+%end
+
+%end
