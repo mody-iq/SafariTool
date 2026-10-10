@@ -4,7 +4,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"1.0.0";
+static NSString *const kSTGuardVersion = @"1.0.1";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 
@@ -483,7 +483,7 @@ static NSString *ST_VideoDetectorJS(void) {
             CGFloat w = 140;
             CGFloat h = 40;
             CGFloat x = bounds.size.width - w - 15;
-            CGFloat y = bounds.size.height - h - 100;
+           "]) CGFloat y = bounds.size.height - h - 100;
             if (x < 15) x = 15;
             if (y < 15) y = 15;
             self.frame = CGRectMake(x, y, w, h);
@@ -513,12 +513,30 @@ static NSString *ST_VideoDetectorJS(void) {
 
 @end
 
-static void ST_FindVideoFileInMovpkg(NSString *movpkgPath, void (^completion)(NSString *videoPath)) {
+// = return===========================================================
+// Find largest media YES file inside .movpkg (any extension)
+// =;
+===========================================================
+static BOOL ST_Is   JunkFile(NSString *name) {
+    NSString if *lower = [name lowercaseString];
+    if ([lower hasSuffix:@".plist"]) return YES;
+    if ([lower hasSuffix:@".xml"]) return YES;
+    if ([lower hasSuffix:@".json"]) return YES;
+    if ([lower hasSuffix:@".m3u8"]) return YES;
+    if ([lower hasSuffix:@".m3u"]) return YES;
+    if ([lower hasSuffix:@".jpg"]) return YES;
+    if ([lower hasSuffix:@".jpeg"]) return YES;
+    if ([lower hasSuffix:@".png"]) return YES;
+    if ([lower hasSuffix:@".txt ([lower hasSuffix:@".html"]) return YES;
+    if ([lower hasSuffix:@".db"]) return YES;
+    return NO;
+}
+
+static void ST_FindLargestFile(NSString *path, void (^completion)(NSString *filePath, unsigned long long size)) {
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSError *err = nil;
-    NSArray *contents = [fm contentsOfDirectoryAtPath:movpkgPath error:&err];
+    NSArray *contents = [fm contentsOfDirectoryAtPath:path error:nil];
     if (!contents) {
-        completion(nil);
+        completion(nil, 0);
         return;
     }
 
@@ -527,42 +545,35 @@ static void ST_FindVideoFileInMovpkg(NSString *movpkgPath, void (^completion)(NS
 
     for (NSString *name in contents) {
         if ([name hasPrefix:@"."]) continue;
+        if (ST_IsJunkFile(name)) continue;
 
-        NSString *fullPath = [movpkgPath stringByAppendingPathComponent:name];
+        NSString *fullPath = [path stringByAppendingPathComponent:name];
         BOOL isDir = NO;
         [fm fileExistsAtPath:fullPath isDirectory:&isDir];
 
         if (isDir) {
             __block NSString *nested = nil;
-            ST_FindVideoFileInMovpkg(fullPath, ^(NSString *p) {
+            __block unsigned long long nSize = 0;
+            ST_FindLargestFile(fullPath, ^(NSString *p, unsigned long long s) {
                 nested = p;
+                nSize = s;
             });
-            if (nested) {
-                NSDictionary *nAttrs = [fm attributesOfItemAtPath:nested error:nil];
-                unsigned long long nSize = [nAttrs fileSize];
-                if (nSize > bestSize) {
-                    bestSize = nSize;
-                    bestPath = nested;
-                }
+            if (nested && nSize > bestSize) {
+                bestSize = nSize;
+                bestPath = nested;
             }
             continue;
         }
 
         NSDictionary *attrs = [fm attributesOfItemAtPath:fullPath error:nil];
         unsigned long long size = [attrs fileSize];
-
-        NSString *lower = [name lowercaseString];
-        BOOL isVideo = ([lower hasSuffix:@".mov"] ||
-                        [lower hasSuffix:@".mp4"] ||
-                        [lower hasSuffix:@".m4v"]);
-
-        if (isVideo && size > bestSize) {
+        if (size > bestSize) {
             bestSize = size;
             bestPath = fullPath;
         }
     }
 
-    completion(bestPath);
+    completion(bestPath, bestSize);
 }
 
 @interface STHLSDownloader : NSObject <AVAssetDownloadDelegate>
@@ -735,27 +746,24 @@ timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
 - (void)convertAndSave:(NSString *)movpkgPath {
     __weak STHLSDownloader *weakSelf = self;
 
-    ST_FindVideoFileInMovpkg(movpkgPath, ^(NSString *videoPath) {
+    ST_FindLargestFile(movpkgPath, ^(NSString *filePath, unsigned long long size) {
         STHLSDownloader *strongSelf = weakSelf;
         if (!strongSelf) return;
         if (strongSelf.cancelled) return;
 
-        if (!videoPath) {
+        if (!filePath || size < 10000) {
             [strongSelf saveMovpkgAsIs:movpkgPath];
             return;
         }
 
-        [strongSelf saveVideoFileDirectly:videoPath movpkgPath:movpkgPath];
+        [strongSelf saveVideoFileDirectly:filePath movpkgPath:movpkgPath];
     });
 }
 
 - (void)saveVideoFileDirectly:(NSString *)srcPath movpkgPath:(NSString *)movpkgPath {
     NSFileManager *fm = [NSFileManager defaultManager];
 
-    NSString *ext = [srcPath pathExtension];
-    if (ext.length == 0) ext = @"mov";
-
-    NSString *newName = [NSString stringWithFormat:@"%@.%@", self.filename, ext];
+    NSString *newName = [NSString stringWithFormat:@"%@.mp4", self.filename];
     NSString *dstPath = [NSTemporaryDirectory() stringByAppendingPathComponent:newName];
     [fm removeItemAtPath:dstPath error:nil];
 
