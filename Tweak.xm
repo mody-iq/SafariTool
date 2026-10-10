@@ -14,8 +14,19 @@ static void ST_SendNotification(NSString *title, NSString *body) {
     @try {
         Class centerClass = NSClassFromString(@"UNUserNotificationCenter");
         if (!centerClass) return;
-        id center = [centerClass performSelector:NSSelectorFromString(@"currentNotificationCenter")];
-        if (!center) return;
+id center = nil;
+SEL selCurrent = NSSelectorFromString(@"currentNotificationCenter");
+if ([centerClass respondsToSelector:selCurrent]) {
+    NSMethodSignature *sigC = [centerClass methodSignatureForSelector:selCurrent];
+    if (sigC) {
+        NSInvocation *invC = [NSInvocation invocationWithMethodSignature:sigC];
+        [invC setTarget:centerClass];
+        [invC setSelector:selCurrent];
+        [invC invoke];
+        [invC getReturnValue:&center];
+    }
+}
+if (!center) return;
         SEL selAuth = NSSelectorFromString(@"requestAuthorizationWithOptions:completionHandler:");
         if ([center respondsToSelector:selAuth]) {
             NSMethodSignature *sig = [center methodSignatureForSelector:selAuth];
