@@ -855,7 +855,6 @@ static void ST_InstallScripts(WKWebView *wv) {
         }
     } @catch (NSException *e) {}
 }
-
 %group STWebKit
 
 %hook WKWebView
@@ -878,3 +877,14 @@ static void ST_InstallScripts(WKWebView *wv) {
 %end
 
 %end
+
+%ctor {
+    @autoreleasepool {
+        if (![[[NSProcessInfo processInfo] processName] isEqualToString:@"MobileSafari"]) return;
+        if (![[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){16, 0, 0}]) return;
+        if (!objc_getClass("WKWebView")) return;
+        if (!ST_GuardBegin()) return;
+        if (!ST_Pref(@"SafariTool_Enabled", YES)) return;
+        %init(STWebKit);
+    }
+}
