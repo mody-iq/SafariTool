@@ -5,7 +5,7 @@
 #import <UserNotifications/UserNotifications.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"3.1.0";
+static NSString *const kSTGuardVersion = @"3.3.0";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 static char kSTInstalledKey;
@@ -13,14 +13,19 @@ static char kSTMessageHandlerKey;
 typedef void (^STDecisionHandler)(WKNavigationActionPolicy, WKWebpagePreferences *);
 
 static void ST_RequestNotifPermissionOnce(void) {
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        @try {
-            UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
-            if (!center) return;
+    @try {
+        CFStringRef appID = CFSTR("com.mody.safarittool");
+        CFStringRef key = CFSTR("NotifAsked");
+        Boolean exists = false;
+        Boolean already = CFPreferencesGetAppBooleanValue(key, appID, &exists);
+        if (exists && already) return;
+        UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+        if (center) {
             [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge) completionHandler:^(BOOL granted, NSError *error) {}];
-        } @catch (NSException *e) {}
-    });
+        }
+        CFPreferencesSetValue(key, kCFBooleanTrue, appID, kCFPreferencesAnyUser, kCFPreferencesAnyHost);
+        CFPreferencesSynchronize(appID, kCFPreferencesAnyUser, kCFPreferencesAnyHost);
+    } @catch (NSException *e) {}
 }
 
 static void ST_SendNotification(NSString *title, NSString *body) {
@@ -148,19 +153,50 @@ static NSString *ST_AdBlockJS(void) {
         [s appendString:@"(function(){"];
         [s appendString:@"if(window.__stAdBlock){return;}"];
         [s appendString:@"window.__stAdBlock=true;"];
-        [s appendString:@"var AH=['doubleclick.net','googlesyndication.com','googleadservices.com','adservice.google.','googletagservices.com','googletagmanager.com','adnxs.com','adsrvr.org','criteo.com','criteo.net','taboola.com','outbrain.com','revcontent.com','mgid.com','zedo.com','pubmatic.com','rubiconproject.com','openx.net','yieldmo.com','sharethrough.com','smartadserver.com','teads.tv','spotxchange.com','spotx.tv','brightroll.com','tremorhub.com','adform.net','casalemedia.com','contextweb.com','gumgum.com','indexexchange.com','loopme.me','media.net','mopub.com','nativeads.com','popads.net','popcash.net','propellerads.com','propellerpops.com','serving-sys.com','sonobi.com','sovrn.com','spotx.com','undertone.com','vungle.com','yieldbot.com','yieldoptimizer.com','zergnet.com','adcolony.com','applovin.com','chartboost.com','inmobi.com','ironsrc.com','supersonicads.com'];"];
+        [s appendString:@"var AH=['doubleclick.net','googlesyndication.com','googleadservices.com','adservice.google.','googletagservices.com','googletagmanager.com','adnxs.com','adsrvr.org','criteo.com','criteo.net','taboola.com','outbrain.com','revcontent.com','mgid.com','zedo.com','pubmatic.com','rubiconproject.com','openx.net','yieldmo.com','sharethrough.com','smartadserver.com','teads.tv','spotxchange.com','spotx.tv','brightroll.com','tremorhub.com','adform.net','casalemedia.com','contextweb.com','gumgum.com','indexexchange.com','loopme.me','media.net','mopub.com','nativeads.com','popads.net','popcash.net','propellerads.com','propellerpops.com','serving-sys.com','sonobi.com','sovrn.com','spotx.com','undertone.com','vungle.com','yieldbot.com','yieldoptimizer.com','zergnet.com','adcolony.com','applovin.com','chartboost.com','inmobi.com','ironsrc.com','supersonicads.com','profitableratecpm.com','clickadu.com','hilltopads.net','exoclick.com','juicyads.com','trafficjunky.com','adsterra.com','adcash.com','bidvertiser.com','popmyads.com','adspyglass.com','adskeeper.com','admaven.com','monetag.com','onclickalgo.com','onclickmax.com'];"];
         [s appendString:@"var AS=['.adsbygoogle','ins.adsbygoogle','[class*=\"adsbygoogle\"]','[id*=\"google_ads\"]','[id^=\"div-gpt-ad\"]','[id^=\"ad-\"]','[id^=\"ad_\"]','[id*=\"banner-ad\"]','[class*=\"ad-banner\"]','[class*=\"ad-container\"]','[class*=\"ad-wrapper\"]','[class*=\"advert\"]','[class^=\"ad-\"]','[class^=\"ad_\"]','[class*=\"sponsored\"]','[class*=\"sponsor\"]','[class*=\"popunder\"]','[class*=\"popup-ad\"]','[class*=\"interstitial\"]','[id*=\"interstitial\"]','[class*=\"taboola\"]','[class*=\"outbrain\"]','[id*=\"taboola\"]','[id*=\"outbrain\"]','[class*=\"adslot\"]','[class*=\"dfp-\"]','iframe[src*=\"doubleclick\"]','iframe[src*=\"googlesyndication\"]','iframe[src*=\"googleadservices\"]','iframe[src*=\"/ads/\"]','iframe[src*=\"/ad/\"]','iframe[src*=\"adserver\"]','iframe[id*=\"google_ads\"]','iframe[name*=\"google_ads\"]','.cookie-banner','[class*=\"cookie-banner\"]','[id*=\"cookie-banner\"]','[class*=\"cookie-consent\"]','[id*=\"cookie-consent\"]','[class*=\"consent-banner\"]'];"];
         [s appendString:@"var CSS='.adsbygoogle,ins.adsbygoogle,[id^=\"div-gpt-ad\"],[class*=\"ad-banner\"],[class*=\"ad-container\"],[class*=\"advert\"],[class*=\"popunder\"],[class*=\"interstitial\"],[class*=\"taboola\"],[class*=\"outbrain\"],.cookie-banner,[class*=\"cookie-banner\"],[class*=\"consent-banner\"]{display:none !important;visibility:hidden !important;height:0 !important;width:0 !important;opacity:0 !important;pointer-events:none !important;}';"];
         [s appendString:@"function icss(){try{if(document.getElementById('st-adblock-css'))return;var st=document.createElement('style');st.id='st-adblock-css';st.textContent=CSS;(document.head||document.documentElement).appendChild(st);}catch(e){}}"];
-        [s appendString:@"window.open=function(){return null;};"];
-        [s appendString:@"document.addEventListener('click',function(e){try{var t=e.target;while(t&&t!==document.body){if(t.tagName==='A'&&t.href){var u=String(t.href).toLowerCase();for(var i=0;i<AH.length;i++){if(u.indexOf(AH[i])>=0){e.preventDefault();e.stopPropagation();return false;}}}t=t.parentElement;}}catch(err){}},true);"];
-        [s appendString:@"function nuke(){try{var nodes=document.querySelectorAll(AS.join(','));for(var i=0;i<nodes.length;i++){try{nodes[i].style.setProperty('display','none','important');nodes[i].style.setProperty('visibility','hidden','important');nodes[i].style.setProperty('height','0','important');nodes[i].style.setProperty('pointer-events','none','important');}catch(e){}}var scripts=document.querySelectorAll('script[src]');for(var j=0;j<scripts.length;j++){var src=(scripts[j].src||'').toLowerCase();for(var k=0;k<AH.length;k++){if(src.indexOf(AH[k])>=0){try{scripts[j].remove();}catch(e){}break;}}}}catch(e){}}"];
+        [s appendString:@"try{window.open=function(){return null;};}catch(e){}"];
+        [s appendString:@"var KILL_WORDS=['GET BONUS','BONUS','CLAIM','REWARD','WINNER','CONGRAT','SPIN','LUCKY','عجل','مكافأة','جائزة','اربح'];"];
+        [s appendString:@"function killOverlays(){"];
+        [s appendString:@"try{"];
+        [s appendString:@"var all=document.querySelectorAll('div,iframe,ins,section,aside,span,a');"];
+        [s appendString:@"for(var i=0;i<all.length;i++){"];
+        [s appendString:@"var el=all[i];"];
+        [s appendString:@"try{"];
+        [s appendString:@"var st=window.getComputedStyle(el);"];
+        [s appendString:@"if(st.position!=='fixed'&&st.position!=='absolute')continue;"];
+        [s appendString:@"var z=parseInt(st.zIndex)||0;"];
+        [s appendString:@"if(z<100)continue;"];
+        [s appendString:@"var txt=((el.innerText||'')+'').toUpperCase();"];
+        [s appendString:@"var hit=false;"];
+        [s appendString:@"for(var w=0;w<KILL_WORDS.length;w++){if(txt.indexOf(KILL_WORDS[w])>=0){hit=true;break;}}"];
+        [s appendString:@"if(hit){try{el.remove();}catch(e){}continue;}"];
+        [s appendString:@"var rt=el.getBoundingClientRect();"];
+        [s appendString:@"var vw=window.innerWidth||1;var vh=window.innerHeight||1;"];
+        [s appendString:@"var cov=(rt.width*rt.height)/(vw*vh);"];
+        [s appendString:@"if(cov>0.30&&z>=2000){try{el.remove();}catch(e){}}"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"}"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"}"];
+        [s appendString:@"function nuke(){"];
+        [s appendString:@"try{"];
+        [s appendString:@"var nodes=document.querySelectorAll(AS.join(','));"];
+        [s appendString:@"for(var i=0;i<nodes.length;i++){try{nodes[i].style.setProperty('display','none','important');nodes[i].style.setProperty('visibility','hidden','important');nodes[i].style.setProperty('height','0','important');nodes[i].style.setProperty('pointer-events','none','important');}catch(e){}}"];
+        [s appendString:@"var scripts=document.querySelectorAll('script[src]');"];
+        [s appendString:@"for(var j=0;j<scripts.length;j++){var src=(scripts[j].src||'').toLowerCase();for(var k=0;k<AH.length;k++){if(src.indexOf(AH[k])>=0){try{scripts[j].remove();}catch(e){}break;}}}"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"killOverlays();"];
+        [s appendString:@"}"];
+        [s appendString:@"document.addEventListener('pointerdown',function(e){try{var t=e.target;if(!t||!t.closest)return;var a=t.closest('a');if(!a)return;var u=(a.href||'').toLowerCase();for(var i=0;i<AH.length;i++){if(u.indexOf(AH[i])>=0){e.preventDefault();e.stopImmediatePropagation();return false;}}}catch(err){}},true);"];
         [s appendString:@"icss();nuke();"];
         [s appendString:@"var tmr=null;function sc(){if(tmr)return;tmr=setTimeout(function(){tmr=null;icss();nuke();},250);}"];
         [s appendString:@"try{new MutationObserver(sc).observe(document.documentElement,{childList:true,subtree:true});}catch(e){}"];
         [s appendString:@"document.addEventListener('DOMContentLoaded',function(){icss();nuke();});"];
         [s appendString:@"window.addEventListener('load',function(){icss();nuke();});"];
-        [s appendString:@"setInterval(nuke,1500);"];
+        [s appendString:@"setInterval(nuke,1000);"];
         [s appendString:@"})();"];
         js = [s copy];
     });
@@ -174,12 +210,15 @@ static NSString *ST_BGPlayJS(void) {
         [s appendString:@"(function(){"];
         [s appendString:@"if(window.__stBGPlay){return;}"];
         [s appendString:@"window.__stBGPlay=true;"];
+        [s appendString:@"window.__stUserPaused=false;"];
         [s appendString:@"try{Object.defineProperty(document,'hidden',{get:function(){return false;},configurable:true});}catch(e){}"];
         [s appendString:@"try{Object.defineProperty(document,'visibilityState',{get:function(){return 'visible';},configurable:true});}catch(e){}"];
         [s appendString:@"try{Object.defineProperty(document,'webkitHidden',{get:function(){return false;},configurable:true});}catch(e){}"];
         [s appendString:@"try{Object.defineProperty(document,'webkitVisibilityState',{get:function(){return 'visible';},configurable:true});}catch(e){}"];
         [s appendString:@"['visibilitychange','webkitvisibilitychange'].forEach(function(n){document.addEventListener(n,function(e){e.stopImmediatePropagation();},true);window.addEventListener(n,function(e){e.stopImmediatePropagation();},true);});"];
-        [s appendString:@"document.addEventListener('pause',function(e){try{if(e.target&&e.target.tagName==='VIDEO'){var v=e.target;setTimeout(function(){try{v.play();}catch(x){}},100);}}catch(x){}},true);"];
+        [s appendString:@"document.addEventListener('click',function(e){try{var t=e.target;if(!t||!t.closest)return;var v=t.closest('video');var ctrls=t.closest('.ytp-play-button,.ytp-play-button-playlist,.html5-main-video,.html5-video-player');if(v||ctrls){setTimeout(function(){try{var vv=document.querySelector('video');if(vv){window.__stUserPaused=vv.paused;}}catch(x){}},80);}}catch(x){}},true);"];
+        [s appendString:@"document.addEventListener('pause',function(e){try{if(window.__stUserPaused)return;if(e.target&&e.target.tagName==='VIDEO'){var v=e.target;setTimeout(function(){try{if(!window.__stUserPaused){v.play();}}catch(x){}},120);}}catch(x){}},true);"];
+        [s appendString:@"document.addEventListener('play',function(e){try{if(e.target&&e.target.tagName==='VIDEO'){window.__stUserPaused=false;}}catch(x){}},true);"];
         [s appendString:@"})();"];
         js = [s copy];
     });
@@ -193,13 +232,25 @@ static NSString *ST_SponsorBlockJS(void) {
         [s appendString:@"(function(){"];
         [s appendString:@"if(window.__stSponsorBlock){return;}"];
         [s appendString:@"window.__stSponsorBlock=true;"];
-        [s appendString:@"if(location.hostname.indexOf('youtube.com')<0)return;"];
+        [s appendString:@"var h=location.hostname;"];
+        [s appendString:@"if(h.indexOf('youtube.com')<0&&h.indexOf('youtu.be')<0)return;"];
+        [s appendString:@"function getVid(){"];
+        [s appendString:@"try{"];
+        [s appendString:@"if(h.indexOf('youtu.be')>=0){var p=location.pathname.replace(/^\\//,'');if(p)return p;}"];
         [s appendString:@"var m=location.search.match(/[?&]v=([^&]+)/);"];
-        [s appendString:@"if(!m)return;"];
-        [s appendString:@"var videoId=m[1];"];
+        [s appendString:@"if(m)return m[1];"];
+        [s appendString:@"m=location.pathname.match(/\\/shorts\\/([^\\/]+)/);"];
+        [s appendString:@"if(m)return m[1];"];
+        [s appendString:@"m=location.pathname.match(/\\/embed\\/([^\\/]+)/);"];
+        [s appendString:@"if(m)return m[1];"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"return null;"];
+        [s appendString:@"}"];
+        [s appendString:@"var videoId=getVid();"];
+        [s appendString:@"if(!videoId)return;"];
         [s appendString:@"var segments=[];"];
         [s appendString:@"var api='https://sponsor.ajay.app/api/skipSegments?videoID='+videoId;"];
-        [s appendString:@"try{fetch(api).then(function(r){return r.json();}).then(function(d){if(Array.isArray(d)){for(var i=0;i<d.length;i++){var seg=d[i];if(seg&&seg.segment&&seg.segment.length>=2){segments.push([seg.segment[0],seg.segment[1]]);}}}}).catch(function(){});}catch(e){}"];
+        [s appendString:@"try{fetch(api,{method:'GET',mode:'cors',credentials:'omit'}).then(function(r){return r.json();}).then(function(d){if(Array.isArray(d)){for(var i=0;i<d.length;i++){var seg=d[i];if(seg&&seg.segment&&seg.segment.length>=2){segments.push([seg.segment[0],seg.segment[1]]);}}}}).catch(function(){});}catch(e){}"];
         [s appendString:@"setInterval(function(){"];
         [s appendString:@"try{"];
         [s appendString:@"var v=document.querySelector('video');"];
@@ -278,20 +329,41 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"function ensureId(v){var id=v.getAttribute(ID_ATTR);if(!id){id='st'+Math.random().toString(36).substr(2,9);v.setAttribute(ID_ATTR,id);}return id;}"];
         [s appendString:@"var svgArrow='<svg width=\"13\" height=\"13\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"display:block;\"><path d=\"M12 4v14M5 11l7 7 7-7\"/></svg>';"];
         [s appendString:@"function makeButton(id,url){"];
-        [s appendString:@"var btn=document.getElementById('st-btn-'+id);"];
-        [s appendString:@"if(!btn){"];
-        [s appendString:@"btn=document.createElement('div');"];
+        [s appendString:@"var wrap=document.getElementById('st-wrap-'+id);"];
+        [s appendString:@"if(wrap)return wrap.querySelector('.st-inner');"];
+        [s appendString:@"wrap=document.createElement('div');"];
+        [s appendString:@"wrap.id='st-wrap-'+id;"];
+        [s appendString:@"wrap.setAttribute('data-st-wrap','1');"];
+        [s appendString:@"wrap.style.cssText='position:fixed;z-index:2147483646;pointer-events:none;';"];
+        [s appendString:@"var btn=document.createElement('div');"];
+        [s appendString:@"btn.className='st-inner';"];
         [s appendString:@"btn.id='st-btn-'+id;"];
         [s appendString:@"btn.setAttribute('data-st-btn','1');"];
-        [s appendString:@"btn.style.cssText='position:fixed;z-index:2147483647;padding:7px 13px;border-radius:18px;box-shadow:0 2px 8px rgba(0,0,0,0.35);cursor:pointer;font-size:13px;font-weight:600;color:#fff;font-family:-apple-system;user-select:none;-webkit-user-select:none;display:flex;align-items:center;gap:5px;white-space:nowrap;line-height:1;letter-spacing:0.2px;background:#007AFF;';"];
+        [s appendString:@"btn.style.cssText='padding:7px 13px;border-radius:18px;box-shadow:0 2px 8px rgba(0,0,0,0.35);cursor:pointer;font-size:13px;font-weight:600;color:#fff;font-family:-apple-system;user-select:none;-webkit-user-select:none;display:flex;align-items:center;gap:5px;white-space:nowrap;line-height:1;letter-spacing:0.2px;background:#007AFF;pointer-events:auto;';"];
         [s appendString:@"btn.innerHTML=svgArrow+'<span>download</span>';"];
+        [s appendString:@"btn.addEventListener('pointerdown',function(e){e.stopPropagation();},true);"];
         [s appendString:@"btn.addEventListener('click',function(e){e.stopPropagation();e.preventDefault();var u=btn.getAttribute('data-st-url');btn.style.opacity='0.5';btn.innerHTML='<span style=\"font-size:11px;\">...</span>';try{window.webkit.messageHandlers.stDownload.postMessage({url:u,referer:window.location.href,ua:navigator.userAgent});}catch(err){}},true);"];
-        [s appendString:@"(document.body||document.documentElement).appendChild(btn);"];
-        [s appendString:@"}"];
+        [s appendString:@"wrap.appendChild(btn);"];
+        [s appendString:@"(document.body||document.documentElement).appendChild(wrap);"];
         [s appendString:@"btn.setAttribute('data-st-url',url||'');"];
         [s appendString:@"return btn;"];
         [s appendString:@"}"];
-        [s appendString:@"function positionButton(btn,v){try{var r=v.getBoundingClientRect();if(r.width<100||r.height<100){btn.style.display='none';return;}if(r.bottom<0||r.top>window.innerHeight){btn.style.display='none';return;}btn.style.display='flex';var bw=btn.offsetWidth||110;var bh=btn.offsetHeight||32;var top=r.top+8;if(top<8)top=8;if(top+bh>window.innerHeight-8)top=window.innerHeight-bh-8;var left=r.right-bw-8;if(left<8)left=8;if(left+bw>window.innerWidth-8)left=window.innerWidth-bw-8;btn.style.top=top+'px';btn.style.left=left+'px';}catch(e){btn.style.display='none';}}"];
+        [s appendString:@"function positionButton(wrap,v){"];
+        [s appendString:@"try{"];
+        [s appendString:@"var r=v.getBoundingClientRect();"];
+        [s appendString:@"if(r.width<100||r.height<100){wrap.style.display='none';return;}"];
+        [s appendString:@"if(r.bottom<0||r.top>window.innerHeight){wrap.style.display='none';return;}"];
+        [s appendString:@"wrap.style.display='block';"];
+        [s appendString:@"var inner=wrap.querySelector('.st-inner');"];
+        [s appendString:@"var bw=inner?(inner.offsetWidth||110):110;"];
+        [s appendString:@"var top=r.top+8;"];
+        [s appendString:@"if(top<8)top=8;"];
+        [s appendString:@"var left=r.right-bw-8;"];
+        [s appendString:@"if(left<8)left=8;"];
+        [s appendString:@"wrap.style.top=top+'px';"];
+        [s appendString:@"wrap.style.left=left+'px';"];
+        [s appendString:@"}catch(e){wrap.style.display='none';}"];
+        [s appendString:@"}"];
         [s appendString:@"var activeIds={};"];
         [s appendString:@"function scan(){"];
         [s appendString:@"activeIds={};"];
@@ -300,13 +372,15 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"for(var i=0;i<videos.length;i++){"];
         [s appendString:@"var v=videos[i];var url=pickBestSource(v);if(!url)continue;"];
         [s appendString:@"var id=ensureId(v);activeIds[id]=true;"];
-        [s appendString:@"var btn=makeButton(id,url);positionButton(btn,v);"];
+        [s appendString:@"makeButton(id,url);"];
+        [s appendString:@"var w=document.getElementById('st-wrap-'+id);"];
+        [s appendString:@"if(w)positionButton(w,v);"];
         [s appendString:@"}"];
-        [s appendString:@"var existing=document.querySelectorAll('[data-st-btn]');"];
-        [s appendString:@"for(var j=0;j<existing.length;j++){var b=existing[j];var bid=b.id.replace('st-btn-','');if(!activeIds[bid]){b.remove();}}"];
+        [s appendString:@"var existing=document.querySelectorAll('[data-st-wrap]');"];
+        [s appendString:@"for(var j=0;j<existing.length;j++){var wr=existing[j];var bid=wr.id.replace('st-wrap-','');if(!activeIds[bid]){wr.remove();}}"];
         [s appendString:@"}catch(e){}"];
         [s appendString:@"}"];
-        [s appendString:@"function onScrollOrResize(){try{var videos=document.querySelectorAll('video');for(var i=0;i<videos.length;i++){var v=videos[i];var id=v.getAttribute(ID_ATTR);if(!id)continue;var b=document.getElementById('st-btn-'+id);if(b)positionButton(b,v);}}catch(e){}}"];
+        [s appendString:@"function onScrollOrResize(){try{var videos=document.querySelectorAll('video');for(var i=0;i<videos.length;i++){var v=videos[i];var id=v.getAttribute(ID_ATTR);if(!id)continue;var w=document.getElementById('st-wrap-'+id);if(w)positionButton(w,v);}}catch(e){}}"];
         [s appendString:@"window.addEventListener('scroll',onScrollOrResize,true);"];
         [s appendString:@"window.addEventListener('resize',onScrollOrResize,true);"];
         [s appendString:@"setInterval(scan,1000);"];
@@ -396,6 +470,7 @@ static NSString *ST_VideoDetectorJS(void) {
 @property (nonatomic, assign) double currentProgress;
 @property (nonatomic, assign) BOOL cancelled;
 @property (nonatomic, assign) BOOL finished;
+@property (nonatomic, assign) UIBackgroundTaskIdentifier bgTask;
 @end
 @implementation STDownloadManager
 + (instancetype)shared {
@@ -403,12 +478,29 @@ static NSString *ST_VideoDetectorJS(void) {
     dispatch_once(&once, ^{ inst = [[STDownloadManager alloc] init]; });
     return inst;
 }
-- (instancetype)init { self = [super init]; if (self) [self recreateSession]; return self; }
+- (instancetype)init { self = [super init]; if (self) { _bgTask = UIBackgroundTaskInvalid; [self recreateSession]; } return self; }
 - (void)recreateSession {
     if (self.session) { [self.session invalidateAndCancel]; self.session = nil; }
     NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration defaultSessionConfiguration];
     cfg.timeoutIntervalForRequest = 30.0; cfg.timeoutIntervalForResource = 3600.0;
     self.session = [NSURLSession sessionWithConfiguration:cfg delegate:self delegateQueue:nil];
+}
+- (void)beginBgTask {
+    __weak STDownloadManager *weakSelf = self;
+    self.bgTask = [[UIApplication sharedApplication] beginBackgroundTaskWithName:@"SafariToolDownload" expirationHandler:^{
+        STDownloadManager *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        if (strongSelf.bgTask != UIBackgroundTaskInvalid) {
+            [[UIApplication sharedApplication] endBackgroundTask:strongSelf.bgTask];
+            strongSelf.bgTask = UIBackgroundTaskInvalid;
+        }
+    }];
+}
+- (void)endBgTask {
+    if (self.bgTask != UIBackgroundTaskInvalid) {
+        [[UIApplication sharedApplication] endBackgroundTask:self.bgTask];
+        self.bgTask = UIBackgroundTaskInvalid;
+    }
 }
 - (void)startDownload:(NSString *)urlString referer:(NSString *)referer ua:(NSString *)ua {
     NSURL *url = [NSURL URLWithString:urlString];
@@ -421,6 +513,7 @@ static NSString *ST_VideoDetectorJS(void) {
     if (base.length == 0) base = @"video";
     if (ext.length == 0) ext = @"mp4";
     self.filename = [NSString stringWithFormat:@"%@_%@.%@", base, ts, ext];
+    [self beginBgTask];
     STFloatingProgress *fp = [STFloatingProgress shared];
     fp.onCancel = ^{ [[STDownloadManager shared] cancel]; };
     [fp showWithText:@"0%"];
@@ -449,6 +542,7 @@ static NSString *ST_VideoDetectorJS(void) {
     BOOL copied = [fm copyItemAtURL:location toURL:[NSURL fileURLWithPath:tmpPath] error:&copyErr];
     if (!copied) {
         [[STFloatingProgress shared] hide];
+        [self endBgTask];
         ST_ShowResultAlert(@"Save Failed", copyErr.localizedDescription ?: @"Copy failed");
         ST_SendNotification(@"Download Failed", copyErr.localizedDescription ?: @"Copy failed");
         return;
@@ -463,6 +557,7 @@ static NSString *ST_VideoDetectorJS(void) {
         if (success) {
             [[NSFileManager defaultManager] removeItemAtPath:tmpPath error:nil];
             [[STFloatingProgress shared] hide];
+            [strongSelf endBgTask];
             ST_ShowResultAlert(@"Saved to Photos", [NSString stringWithFormat:@"Video saved: %@", strongSelf.filename]);
             ST_SendNotification(@"Saved to Photos", strongSelf.filename);
             return;
@@ -480,6 +575,7 @@ static NSString *ST_VideoDetectorJS(void) {
     NSError *moveErr = nil;
     [fm moveItemAtPath:path toPath:dst error:&moveErr];
     [[STFloatingProgress shared] hide];
+    [self endBgTask];
     if (moveErr) {
         ST_ShowResultAlert(@"Save Failed", moveErr.localizedDescription);
         ST_SendNotification(@"Save Failed", moveErr.localizedDescription);
@@ -494,6 +590,7 @@ static NSString *ST_VideoDetectorJS(void) {
     if (error.code == NSURLErrorCancelled) return;
     self.finished = YES;
     [[STFloatingProgress shared] hide];
+    [self endBgTask];
     ST_ShowResultAlert(@"Download Failed", error.localizedDescription ?: @"Unknown");
     ST_SendNotification(@"Download Failed", error.localizedDescription ?: @"Unknown");
 }
@@ -501,6 +598,7 @@ static NSString *ST_VideoDetectorJS(void) {
     if (self.cancelled) return;
     self.cancelled = YES;
     [[STFloatingProgress shared] hide];
+    [self endBgTask];
     if (self.session) { [self.session invalidateAndCancel]; self.session = nil; }
     [self recreateSession];
 }
