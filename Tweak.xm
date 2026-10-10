@@ -1,17 +1,13 @@
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 #import <Photos/Photos.h>
-#import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"1.1.0";
+static NSString *const kSTGuardVersion = @"2.0.0";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
-static NSString *const kSTAVHeadersKey = @"AVURLAssetHTTPHeaderFieldsKey";
-
 static char kSTInstalledKey;
 static char kSTMessageHandlerKey;
-
 typedef void (^STDecisionHandler)(WKNavigationActionPolicy, WKWebpagePreferences *);
 
 static id ST_GlobalVal(NSString *key) {
@@ -76,9 +72,7 @@ static BOOL ST_GuardBegin(void) {
         [std synchronize];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kSTSurviveSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             NSUserDefaults *s = [NSUserDefaults standardUserDefaults];
-            [s setBool:NO forKey:@"STPending"];
-            [s setInteger:0 forKey:@"STCrashCount"];
-            [s synchronize];
+            [s setBool:NO forKey:@"STPending"]; [s setInteger:0 forKey:@"STCrashCount"]; [s synchronize];
         });
         return YES;
     } @catch (NSException *e) { return NO; }
@@ -145,52 +139,6 @@ static NSString *ST_ForceCopyJS(void) {
     });
     return js;
 }
-static NSString *ST_StreamCaptureJS(void) {
-    static NSString *js = nil; static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        NSMutableString *s = [NSMutableString string];
-        [s appendString:@"(function(){"];
-        [s appendString:@"if(window.__stStreamHook){return;}"];
-        [s appendString:@"window.__stStreamHook=true;"];
-        [s appendString:@"window.__stCaptured=[];"];
-        [s appendString:@"function __stAdd(u){"];
-        [s appendString:@"try{"];
-        [s appendString:@"if(!u)return;"];
-        [s appendString:@"u=String(u);"];
-        [s appendString:@"if(u.indexOf('blob:')===0)return;"];
-        [s appendString:@"if(u.indexOf('data:')===0)return;"];
-        [s appendString:@"var l=u.toLowerCase();"];
-        [s appendString:@"if(l.indexOf('.m3u8')<0 && l.indexOf('.mpd')<0)return;"];
-        [s appendString:@"if(window.__stCaptured.indexOf(u)<0){"];
-        [s appendString:@"window.__stCaptured.push(u);"];
-        [s appendString:@"if(window.__stCaptured.length>15)window.__stCaptured.shift();"];
-        [s appendString:@"}"];
-        [s appendString:@"}catch(e){}"];
-        [s appendString:@"}"];
-        [s appendString:@"try{"];
-        [s appendString:@"var __stOpen=XMLHttpRequest.prototype.open;"];
-        [s appendString:@"XMLHttpRequest.prototype.open=function(m,url){"];
-        [s appendString:@"__stAdd(url);"];
-        [s appendString:@"return __stOpen.apply(this,arguments);"];
-        [s appendString:@"};"];
-        [s appendString:@"}catch(e){}"];
-        [s appendString:@"try{"];
-        [s appendString:@"if(window.fetch){"];
-        [s appendString:@"var __stFetch=window.fetch;"];
-        [s appendString:@"window.fetch=function(input,init){"];
-        [s appendString:@"try{"];
-        [s appendString:@"if(typeof input==='string')__stAdd(input);"];
-        [s appendString:@"else if(input&&input.url)__stAdd(input.url);"];
-        [s appendString:@"}catch(e){}"];
-        [s appendString:@"return __stFetch.apply(this,arguments);"];
-        [s appendString:@"};"];
-        [s appendString:@"}"];
-        [s appendString:@"}catch(e){}"];
-        [s appendString:@"})();"];
-        js = [s copy];
-    });
-    return js;
-}
 static NSString *ST_VideoDetectorJS(void) {
     static NSString *js = nil; static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -199,15 +147,6 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"if(window.__stVideoDetector){return;}"];
         [s appendString:@"window.__stVideoDetector=true;"];
         [s appendString:@"var ID_ATTR='data-st-id';"];
-        [s appendString:@"function isHLS(u){"];
-        [s appendString:@"if(!u)return false;"];
-        [s appendString:@"var l=u.toLowerCase();"];
-        [s appendString:@"if(l.indexOf('blob:')===0)return true;"];
-        [s appendString:@"if(l.indexOf('.m3u8')>=0)return true;"];
-        [s appendString:@"if(l.indexOf('/hls/')>=0)return true;"];
-        [s appendString:@"return false;"];
-        [s appendString:@"}"];
-        [s appendString:@"function isBlob(u){return u && u.indexOf('blob:')===0;}"];
         [s appendString:@"function pickBestSource(v){"];
         [s appendString:@"try{"];
         [s appendString:@"var sources=v.querySelectorAll('source');"];
@@ -226,11 +165,8 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"var sr=(sources[i].src||'').toLowerCase();"];
         [s appendString:@"if(t.indexOf('m4v')>=0||sr.indexOf('.m4v')>=0){return sources[i].src;}"];
         [s appendString:@"}"];
-        [s appendString:@"if(v.currentSrc)return v.currentSrc;"];
-        [s appendString:@"if(v.src)return v.src;"];
-        [s appendString:@"for(var i=0;i<sources.length;i++){"];
-        [s appendString:@"if(sources[i].src)return sources[i].src;"];
-        [s appendString:@"}"];
+        [s appendString:@"if(v.currentSrc && v.currentSrc.indexOf('blob:')!==0 && v.currentSrc.indexOf('.m3u8')<0)return v.currentSrc;"];
+        [s appendString:@"if(v.src && v.src.indexOf('blob:')!==0 && v.src.indexOf('.m3u8')<0)return v.src;"];
         [s appendString:@"}catch(e){}"];
         [s appendString:@"return null;"];
         [s appendString:@"}"];
@@ -240,28 +176,24 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"return id;"];
         [s appendString:@"}"];
         [s appendString:@"var svgArrow='<svg width=\"13\" height=\"13\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"display:block;\"><path d=\"M12 4v14M5 11l7 7 7-7\"/></svg>';"];
-        [s appendString:@"function makeButton(id,url,isHLSStream,isBlobStream){"];
+        [s appendString:@"function makeButton(id,url){"];
         [s appendString:@"var btn=document.getElementById('st-btn-'+id);"];
         [s appendString:@"if(!btn){"];
         [s appendString:@"btn=document.createElement('div');"];
         [s appendString:@"btn.id='st-btn-'+id;"];
         [s appendString:@"btn.setAttribute('data-st-btn','1');"];
-        [s appendString:@"btn.style.cssText='position:fixed;z-index:2147483647;padding:7px 13px;border-radius:18px;box-shadow:0 2px 8px rgba(0,0,0,0.35);cursor:pointer;font-size:13px;font-weight:600;color:#fff;font-family:-apple-system;user-select:none;-webkit-user-select:none;display:flex;align-items:center;gap:5px;white-space:nowrap;line-height:1;letter-spacing:0.2px;';"];
+        [s appendString:@"btn.style.cssText='position:fixed;z-index:2147483647;padding:7px 13px;border-radius:18px;box-shadow:0 2px 8px rgba(0,0,0,0.35);cursor:pointer;font-size:13px;font-weight:600;color:#fff;font-family:-apple-system;user-select:none;-webkit-user-select:none;display:flex;align-items:center;gap:5px;white-space:nowrap;line-height:1;letter-spacing:0.2px;background:#007AFF;';"];
         [s appendString:@"btn.innerHTML=svgArrow+'<span>download</span>';"];
         [s appendString:@"btn.addEventListener('click',function(e){"];
         [s appendString:@"e.stopPropagation();e.preventDefault();"];
         [s appendString:@"var u=btn.getAttribute('data-st-url');"];
-        [s appendString:@"var blob=btn.getAttribute('data-st-blob')==='1';"];
-        [s appendString:@"var streams=(window.__stCaptured||[]).slice();"];
         [s appendString:@"btn.style.opacity='0.5';"];
         [s appendString:@"btn.innerHTML='<span style=\"font-size:11px;\">...</span>';"];
-        [s appendString:@"try{window.webkit.messageHandlers.stDownload.postMessage({url:u,referer:window.location.href,ua:navigator.userAgent,blob:blob,streams:streams});}catch(err){}"];
+        [s appendString:@"try{window.webkit.messageHandlers.stDownload.postMessage({url:u,referer:window.location.href,ua:navigator.userAgent});}catch(err){}"];
         [s appendString:@"},true);"];
         [s appendString:@"(document.body||document.documentElement).appendChild(btn);"];
         [s appendString:@"}"];
-        [s appendString:@"btn.style.background=isHLSStream?'#FF9500':'#007AFF';"];
         [s appendString:@"btn.setAttribute('data-st-url',url||'');"];
-        [s appendString:@"btn.setAttribute('data-st-blob',isBlobStream?'1':'0');"];
         [s appendString:@"return btn;"];
         [s appendString:@"}"];
         [s appendString:@"function positionButton(btn,v){"];
@@ -290,17 +222,10 @@ static NSString *ST_VideoDetectorJS(void) {
         [s appendString:@"for(var i=0;i<videos.length;i++){"];
         [s appendString:@"var v=videos[i];"];
         [s appendString:@"var url=pickBestSource(v);"];
-        [s appendString:@"var blob=isBlob(url);"];
-        [s appendString:@"if(!url){"];
-        [s appendString:@"var captured=(window.__stCaptured||[]);"];
-        [s appendString:@"if(captured.length===0)continue;"];
-        [s appendString:@"url=captured[0];"];
-        [s appendString:@"blob=false;"];
-        [s appendString:@"}"];
+        [s appendString:@"if(!url)continue;"];
         [s appendString:@"var id=ensureId(v);"];
         [s appendString:@"activeIds[id]=true;"];
-        [s appendString:@"var isH=isHLS(url)||blob;"];
-        [s appendString:@"var btn=makeButton(id,url,isH,blob);"];
+        [s appendString:@"var btn=makeButton(id,url);"];
         [s appendString:@"positionButton(btn,v);"];
         [s appendString:@"}"];
         [s appendString:@"var existing=document.querySelectorAll('[data-st-btn]');"];
@@ -335,7 +260,6 @@ static NSString *ST_VideoDetectorJS(void) {
 
 @interface STFloatingProgress : UIView
 @property (nonatomic, strong) UILabel *label;
-@property (nonatomic, copy) void (^onTap)(void);
 @property (nonatomic, copy) void (^onCancel)(void);
 + (instancetype)shared;
 - (void)showWithText:(NSString *)text;
@@ -370,14 +294,11 @@ static NSString *ST_VideoDetectorJS(void) {
         closeBtn.titleLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
         [closeBtn addTarget:self action:@selector(cancelTapped) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:closeBtn];
-        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapTapped)];
-        [self addGestureRecognizer:tap];
         UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panMoved:)];
         [self addGestureRecognizer:pan];
     }
     return self;
 }
-- (void)tapTapped { if (self.onTap) self.onTap(); }
 - (void)cancelTapped { if (self.onCancel) self.onCancel(); }
 - (void)panMoved:(UIPanGestureRecognizer *)g {
     UIView *sv = self.superview; if (!sv) return;
@@ -410,244 +331,6 @@ static NSString *ST_VideoDetectorJS(void) {
 }
 @end
 
-@interface STHLSDownloader : NSObject <AVAssetDownloadDelegate>
-@property (nonatomic, strong) AVAssetDownloadURLSession *session;
-@property (nonatomic, strong) AVAssetDownloadTask *task;
-@property (nonatomic, strong) AVAssetExportSession *exportSession;
-@property (nonatomic, copy) NSString *filename;
-@property (nonatomic, copy) NSString *referer;
-@property (nonatomic, copy) NSString *ua;
-@property (nonatomic, assign) double currentProgress;
-@property (nonatomic, assign) BOOL cancelled;
-@property (nonatomic, assign) BOOL finished;
-@property (nonatomic, strong) NSTimer *progressTimer;
-@end
-
-@implementation STHLSDownloader
-
-+ (instancetype)shared {
-    static STHLSDownloader *inst = nil; static dispatch_once_t once;
-    dispatch_once(&once, ^{ inst = [[STHLSDownloader alloc] init]; });
-    return inst;
-}
-
-- (void)startWithURL:(NSString *)urlString referer:(NSString *)referer ua:(NSString *)ua webView:(WKWebView *)webView {
-    NSURL *url = [NSURL URLWithString:urlString];
-    if (!url) { ST_ShowResultAlert(@"SafariTool", @"Invalid URL"); return; }
-    self.referer = referer ?: @"";
-    self.ua = ua ?: @"";
-    self.currentProgress = 0.0;
-    self.cancelled = NO;
-    self.finished = NO;
-    NSString *base = url.lastPathComponent;
-    if (base.length == 0) base = @"video";
-    base = [base stringByDeletingPathExtension];
-    if (base.length == 0) base = @"video";
-    NSString *ts = [NSString stringWithFormat:@"%.0f", [[NSDate date] timeIntervalSince1970]];
-    self.filename = [NSString stringWithFormat:@"%@_%@", base, ts];
-
-    STFloatingProgress *fp = [STFloatingProgress shared];
-    fp.onTap = ^{};
-    fp.onCancel = ^{ [[STHLSDownloader shared] cancel]; };
-    [fp showWithText:@"0%"];
-
-    NSMutableDictionary *headers = [NSMutableDictionary dictionary];
-    if (referer.length > 0) {
-        headers[@"Referer"] = referer;
-        NSURL *refURL = [NSURL URLWithString:referer];
-        if (refURL.scheme.length > 0 && refURL.host.length > 0) {
-            headers[@"Origin"] = [NSString stringWithFormat:@"%@://%@", refURL.scheme, refURL.host];
-        }
-    }
-    if (ua.length > 0) headers[@"User-Agent"] = ua;
-    NSDictionary *options = @{ kSTAVHeadersKey: headers };
-    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:options];
-
-    NSString *identifier = [NSString stringWithFormat:@"com.mody.safarittool.hls.%@", [[NSUUID UUID] UUIDString]];
-    NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:identifier];
-    cfg.allowsCellularAccess = YES;
-    cfg.discretionary = NO;
-    cfg.sessionSendsLaunchEvents = NO;
-    cfg.timeoutIntervalForRequest = 60.0;
-    cfg.timeoutIntervalForResource = 7200.0;
-    self.session = [AVAssetDownloadURLSession sessionWithConfiguration:cfg assetDownloadDelegate:self delegateQueue:[NSOperationQueue mainQueue]];
-    self.task = [self.session assetDownloadTaskWithURLAsset:asset assetTitle:self.filename assetArtworkData:nil options:nil];
-    if (!self.task) {
-        [self cleanupSession];
-        [[STFloatingProgress shared] hide];
-        ST_ShowResultAlert(@"HLS Download Failed", @"Could not create download task.");
-        return;
-    }
-    [self.task resume];
-}
-
-- (void)cleanupSession {
-    if (self.session) { [self.session invalidateAndCancel]; self.session = nil; }
-    self.task = nil;
-}
-
-- (void)URLSession:(NSURLSession *)session assetDownloadTask:(AVAssetDownloadTask *)assetDownloadTask didLoadTimeRange:(CMTimeRange)timeRange totalTimeRangesLoaded:(NSArray<NSValue *> *)loadedTimeRanges timeRangeExpectedToLoad:(CMTimeRange)timeRangeExpectedToLoad {
-    if (self.cancelled || self.finished) return;
-    double expected = CMTimeGetSeconds(timeRangeExpectedToLoad.duration);
-    if (expected <= 0) return;
-    double loaded = 0;
-    for (NSValue *v in loadedTimeRanges) {
-        CMTimeRange r = v.CMTimeRangeValue;
-        loaded += CMTimeGetSeconds(r.duration);
-    }
-    double progress = loaded / expected;
-    if (progress > 1.0) progress = 1.0;
-    if (progress < 0) progress = 0;
-    self.currentProgress = progress;
-    NSString *pct = [NSString stringWithFormat:@"%.0f%%", progress * 100.0];
-    [[STFloatingProgress shared] updateText:pct];
-}
-
-- (void)URLSession:(NSURLSession *)session assetDownloadTask:(AVAssetDownloadTask *)assetDownloadTask didFinishDownloadingToURL:(NSURL *)location {
-    if (self.cancelled || self.finished) return;
-    self.finished = YES;
-    [[STFloatingProgress shared] updateText:@"Converting..."];
-    NSFileManager *fm = [NSFileManager defaultManager];
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    NSString *docs = paths.firstObject ?: NSTemporaryDirectory();
-    NSString *dir = [docs stringByAppendingPathComponent:@"SafariTool"];
-    [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
-    NSString *dstPath = [dir stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.movpkg", self.filename]];
-    [fm removeItemAtPath:dstPath error:nil];
-    NSError *moveErr = nil;
-    BOOL moved = [fm moveItemAtURL:location toURL:[NSURL fileURLWithPath:dstPath] error:&moveErr];
-    [self cleanupSession];
-    if (!moved) {
-        [[STFloatingProgress shared] hide];
-        ST_ShowResultAlert(@"Save Failed", moveErr.localizedDescription ?: @"Unknown error");
-        return;
-    }
-    [self exportMovpkg:dstPath];
-}
-
-- (void)exportMovpkg:(NSString *)movpkgPath {
-    NSURL *movpkgURL = [NSURL fileURLWithPath:movpkgPath];
-    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:movpkgURL options:nil];
-    NSString *outName = [NSString stringWithFormat:@"%@.mp4", self.filename];
-    NSString *outPath = [NSTemporaryDirectory() stringByAppendingPathComponent:outName];
-    [[NSFileManager defaultManager] removeItemAtPath:outPath error:nil];
-
-    NSArray *presets = [AVAssetExportSession exportPresetsCompatibleWithAsset:asset];
-    NSString *preset = nil;
-    if ([presets containsObject:AVAssetExportPresetPassthrough]) preset = AVAssetExportPresetPassthrough;
-    else if ([presets containsObject:AVAssetExportPresetHighestQuality]) preset = AVAssetExportPresetHighestQuality;
-    else if ([presets containsObject:AVAssetExportPresetMediumQuality]) preset = AVAssetExportPresetMediumQuality;
-    else if (presets.count > 0) preset = presets.firstObject;
-    if (!preset) { [self saveMovpkgAsIs:movpkgPath]; return; }
-
-    AVAssetExportSession *session = [[AVAssetExportSession alloc] initWithAsset:asset presetName:preset];
-    session.outputURL = [NSURL fileURLWithPath:outPath];
-    NSArray *supported = session.supportedFileTypes;
-    if ([supported containsObject:AVFileTypeMPEG4]) session.outputFileType = AVFileTypeMPEG4;
-    else if ([supported containsObject:AVFileTypeQuickTimeMovie]) session.outputFileType = AVFileTypeQuickTimeMovie;
-    else if (supported.count > 0) session.outputFileType = supported.firstObject;
-    else { [self saveMovpkgAsIs:movpkgPath]; return; }
-    session.shouldOptimizeForNetworkUse = YES;
-    self.exportSession = session;
-
-    self.progressTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(updateExportProgress) userInfo:nil repeats:YES];
-
-    __weak STHLSDownloader *weakSelf = self;
-    [session exportAsynchronouslyWithCompletionHandler:^{
-        dispatch_async(dispatch_get_main_queue(), ^{
-            STHLSDownloader *strongSelf = weakSelf;
-            if (!strongSelf) return;
-            [strongSelf.progressTimer invalidate];
-            strongSelf.progressTimer = nil;
-            if (strongSelf.cancelled) return;
-            if (session.status == AVAssetExportSessionStatusCompleted) {
-                [strongSelf saveMP4ToPhotos:outPath movpkgPath:movpkgPath];
-            } else {
-                NSLog(@"[SafariTool] export failed: %@", session.error);
-                [[NSFileManager defaultManager] removeItemAtPath:outPath error:nil];
-                [strongSelf saveMovpkgAsIs:movpkgPath];
-            }
-        });
-    }];
-}
-
-- (void)updateExportProgress {
-    if (!self.exportSession) return;
-    float p = self.exportSession.progress;
-    NSString *pct = [NSString stringWithFormat:@"Cnv %.0f%%", p * 100.0];
-    [[STFloatingProgress shared] updateText:pct];
-}
-
-- (void)saveMP4ToPhotos:(NSString *)mp4Path movpkgPath:(NSString *)movpkgPath {
-    NSURL *fileURL = [NSURL fileURLWithPath:mp4Path];
-    __weak STHLSDownloader *weakSelf = self;
-    [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
-        [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:fileURL];
-    } completionHandler:^(BOOL success, NSError *error) {
-        STHLSDownloader *strongSelf = weakSelf;
-        if (!strongSelf) return;
-        if (success) {
-            [[NSFileManager defaultManager] removeItemAtPath:mp4Path error:nil];
-            [[NSFileManager defaultManager] removeItemAtPath:movpkgPath error:nil];
-            [[STFloatingProgress shared] hide];
-            ST_ShowResultAlert(@"Saved to Photos", [NSString stringWithFormat:@"Video saved: %@", strongSelf.filename]);
-            return;
-        }
-        NSLog(@"[SafariTool] Photos failed: %@", error);
-        [strongSelf saveToFilesDirectly:mp4Path movpkgPath:movpkgPath];
-    }];
-}
-
-- (void)saveToFilesDirectly:(NSString *)srcPath movpkgPath:(NSString *)movpkgPath {
-    NSFileManager *fm = [NSFileManager defaultManager];
-    if (![fm fileExistsAtPath:srcPath]) {
-        [[STFloatingProgress shared] hide];
-        ST_ShowResultAlert(@"Save Failed", @"Temp missing");
-        return;
-    }
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    NSString *docs = paths.firstObject ?: NSTemporaryDirectory();
-    NSString *dir = [docs stringByAppendingPathComponent:@"SafariTool"];
-    [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
-    NSString *newName = [NSString stringWithFormat:@"%@.mp4", self.filename];
-    NSString *dst = [dir stringByAppendingPathComponent:newName];
-    [fm removeItemAtPath:dst error:nil];
-    NSError *moveErr = nil;
-    [fm moveItemAtPath:srcPath toPath:dst error:&moveErr];
-    [fm removeItemAtPath:movpkgPath error:nil];
-    [[STFloatingProgress shared] hide];
-    if (moveErr) ST_ShowResultAlert(@"Save Failed", moveErr.localizedDescription);
-    else ST_ShowResultAlert(@"Saved to Files", [NSString stringWithFormat:@"Saved: %@", newName]);
-}
-
-- (void)saveMovpkgAsIs:(NSString *)movpkgPath {
-    [[STFloatingProgress shared] hide];
-    NSString *msg = [NSString stringWithFormat:@"Saved as .movpkg.\n\n%@.movpkg\n\nUse VLC.", self.filename];
-    ST_ShowResultAlert(@"Saved to Files", msg);
-}
-
-- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
-    if (!error) return;
-    if (self.cancelled || self.finished) return;
-    if (error.code == NSURLErrorCancelled) return;
-    self.finished = YES;
-    [self cleanupSession];
-    [[STFloatingProgress shared] hide];
-    ST_ShowResultAlert(@"HLS Download Failed", error.localizedDescription ?: @"Unknown");
-}
-
-- (void)cancel {
-    if (self.cancelled) return;
-    self.cancelled = YES;
-    [self.progressTimer invalidate];
-    self.progressTimer = nil;
-    if (self.exportSession) { [self.exportSession cancelExport]; self.exportSession = nil; }
-    [[STFloatingProgress shared] hide];
-    if (self.task) [self.task cancel];
-    [self cleanupSession];
-}
-@end
-
 @interface STDownloadManager : NSObject <NSURLSessionDownloadDelegate>
 @property (nonatomic, strong) NSURLSession *session;
 @property (nonatomic, copy) NSString *filename;
@@ -661,7 +344,11 @@ static NSString *ST_VideoDetectorJS(void) {
     dispatch_once(&once, ^{ inst = [[STDownloadManager alloc] init]; });
     return inst;
 }
-- (instancetype)init { self = [super init]; if (self) [self recreateSession]; return self; }
+- (instancetype)init {
+    self = [super init];
+    if (self) [self recreateSession];
+    return self;
+}
 - (void)recreateSession {
     if (self.session) { [self.session invalidateAndCancel]; self.session = nil; }
     NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration defaultSessionConfiguration];
@@ -680,7 +367,6 @@ static NSString *ST_VideoDetectorJS(void) {
     if (ext.length == 0) ext = @"mp4";
     self.filename = [NSString stringWithFormat:@"%@_%@.%@", base, ts, ext];
     STFloatingProgress *fp = [STFloatingProgress shared];
-    fp.onTap = ^{};
     fp.onCancel = ^{ [[STDownloadManager shared] cancel]; };
     [fp showWithText:@"0%"];
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
@@ -757,14 +443,6 @@ static NSString *ST_VideoDetectorJS(void) {
 }
 @end
 
-static BOOL ST_IsHLSURL(NSString *urlString) {
-    if (urlString.length == 0) return NO;
-    NSString *lower = urlString.lowercaseString;
-    if ([lower containsString:@".m3u8"]) return YES;
-    if ([lower containsString:@"/hls/"]) return YES;
-    return NO;
-}
-
 @interface STMessageHandler : NSObject <WKScriptMessageHandler>
 @end
 @implementation STMessageHandler
@@ -775,62 +453,16 @@ static BOOL ST_IsHLSURL(NSString *urlString) {
         NSString *urlStr = body[@"url"];
         NSString *referer = body[@"referer"];
         NSString *ua = body[@"ua"];
-        BOOL isBlob = [body[@"blob"] boolValue];
-        NSArray *streams = body[@"streams"];
-        WKWebView *wv = message.webView;
+        if (![urlStr isKindOfClass:[NSString class]] || urlStr.length == 0) return;
         if (![referer isKindOfClass:[NSString class]]) referer = @"";
         if (![ua isKindOfClass:[NSString class]]) ua = @"";
-        if (isBlob || !urlStr || urlStr.length == 0 || [urlStr hasPrefix:@"blob:"]) {
-            [self handleStreamingChoice:streams referer:referer ua:ua webView:wv];
+        NSString *lower = urlStr.lowercaseString;
+        if ([lower containsString:@".m3u8"] || [lower hasPrefix:@"blob:"]) {
+            ST_ShowResultAlert(@"HLS not supported", @"This video uses HLS streaming which is not supported. Only direct MP4/MOV/M4V links work.");
             return;
         }
-        if (![urlStr isKindOfClass:[NSString class]]) return;
-        if (ST_IsHLSURL(urlStr)) {
-            [[STHLSDownloader shared] startWithURL:urlStr referer:referer ua:ua webView:wv];
-        } else {
-            [[STDownloadManager shared] startDownload:urlStr referer:referer ua:ua];
-        }
+        [[STDownloadManager shared] startDownload:urlStr referer:referer ua:ua];
     } @catch (NSException *e) { NSLog(@"[SafariTool] %@", e); }
-}
-- (void)handleStreamingChoice:(NSArray *)streams referer:(NSString *)referer ua:(NSString *)ua webView:(WKWebView *)wv {
-    NSMutableArray *valid = [NSMutableArray array];
-    if ([streams isKindOfClass:[NSArray class]]) {
-        for (id s in streams) {
-            if ([s isKindOfClass:[NSString class]] && [s length] > 0) [valid addObject:s];
-        }
-    }
-    if (valid.count == 0) {
-        ST_ShowResultAlert(@"No stream captured", @"PLAY the video for 2-3 seconds first, then press download again.");
-        return;
-    }
-    if (valid.count == 1) {
-        NSString *onlyURL = valid.firstObject;
-        [[STHLSDownloader shared] startWithURL:onlyURL referer:referer ua:ua webView:wv];
-        return;
-    }
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIViewController *top = ST_SafeTopViewController();
-        if (!top || top.presentedViewController) return;
-        UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Choose a stream" message:@"Try option 1 first:" preferredStyle:UIAlertControllerStyleActionSheet];
-        NSInteger idx = 1;
-        for (NSString *url in valid) {
-            NSString *shortName = url.lastPathComponent;
-            if (shortName.length > 50) shortName = [shortName substringToIndex:50];
-            NSString *title = [NSString stringWithFormat:@"%ld. %@", (long)idx, shortName];
-            [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [[STHLSDownloader shared] startWithURL:url referer:referer ua:ua webView:wv];
-                });
-            }]];
-            idx++;
-        }
-        [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-        if (sheet.popoverPresentationController) {
-            sheet.popoverPresentationController.sourceView = top.view;
-            sheet.popoverPresentationController.sourceRect = CGRectMake(top.view.bounds.size.width / 2.0, top.view.bounds.size.height / 2.0, 1, 1);
-        }
-        [top presentViewController:sheet animated:YES completion:nil];
-    });
 }
 @end
 
@@ -840,8 +472,6 @@ static void ST_InstallScripts(WKWebView *wv) {
         if (!ucc) return;
         if (objc_getAssociatedObject(ucc, &kSTInstalledKey)) return;
         objc_setAssociatedObject(ucc, &kSTInstalledKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        WKUserScript *captureScript = [[WKUserScript alloc] initWithSource:ST_StreamCaptureJS() injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO];
-        [ucc addUserScript:captureScript];
         if (ST_Pref(@"SafariTool_ForceCopy", YES)) {
             WKUserScript *script = [[WKUserScript alloc] initWithSource:ST_ForceCopyJS() injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO];
             [ucc addUserScript:script];
@@ -855,6 +485,7 @@ static void ST_InstallScripts(WKWebView *wv) {
         }
     } @catch (NSException *e) {}
 }
+
 %group STWebKit
 
 %hook WKWebView
