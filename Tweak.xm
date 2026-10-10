@@ -3,12 +3,74 @@
 #import <Photos/Photos.h>
 #import <objc/runtime.h>
 
-static NSString *const kSTGuardVersion = @"2.0.0";
+static NSString *const kSTGuardVersion = @"2.2.0";
 static const NSInteger kSTCrashLimit = 3;
 static const double kSTSurviveSeconds = 6.0;
 static char kSTInstalledKey;
 static char kSTMessageHandlerKey;
 typedef void (^STDecisionHandler)(WKNavigationActionPolicy, WKWebpagePreferences *);
+
+static void ST_SendNotification(NSString *title, NSString *body) {
+    @try {
+        Class centerClass = NSClassFromString(@"UNUserNotificationCenter");
+        if (!centerClass) return;
+        id center = [centerClass performSelector:NSSelectorFromString(@"currentNotificationCenter")];
+        if (!center) return;
+        SEL selAuth = NSSelectorFromString(@"requestAuthorizationWithOptions:completionHandler:");
+        if ([center respondsToSelector:selAuth]) {
+            NSMethodSignature *sig = [center methodSignatureForSelector:selAuth];
+            if (sig) {
+                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+                [inv setTarget:center];
+                [inv setSelector:selAuth];
+                NSUInteger opts = 7;
+                [inv setArgument:&opts atIndex:2];
+                void (^completion)(BOOL, NSError *) = ^(BOOL granted, NSError *error) {};
+                [inv setArgument:&completion atIndex:3];
+                [inv invoke];
+            }
+        }
+        Class contentClass = NSClassFromString(@"UNMutableNotificationContent");
+        if (!contentClass) return;
+        id content = [[contentClass alloc] init];
+        if (!content) return;
+        @try { [content setValue:title forKey:@"title"]; } @catch (NSException *e) {}
+        @try { [content setValue:body forKey:@"body"]; } @catch (NSException *e) {}
+        @try { [content setValue:@(1) forKey:@"sound"]; } @catch (NSException *e) {}
+        Class requestClass = NSClassFromString(@"UNNotificationRequest");
+        if (!requestClass) return;
+        SEL selReq = NSSelectorFromString(@"requestWithIdentifier:content:trigger:");
+        if (![requestClass respondsToSelector:selReq]) return;
+        NSString *ident = [[NSUUID UUID] UUIDString];
+        id request = nil;
+        NSMethodSignature *sigR = [requestClass methodSignatureForSelector:selReq];
+        if (sigR) {
+            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sigR];
+            [inv setTarget:requestClass];
+            [inv setSelector:selReq];
+            [inv setArgument:&ident atIndex:2];
+            [inv setArgument:&content atIndex:3];
+            id nilTrigger = nil;
+            [inv setArgument:&nilTrigger atIndex:4];
+            [inv invoke];
+            [inv getReturnValue:&request];
+        }
+        if (!request) return;
+        SEL selAdd = NSSelectorFromString(@"addNotificationRequest:withCompletionHandler:");
+        if ([center respondsToSelector:selAdd]) {
+            NSMethodSignature *sig2 = [center methodSignatureForSelector:selAdd];
+            if (sig2) {
+                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig2];
+                [inv setTarget:center];
+                [inv setSelector:selAdd];
+                [inv setArgument:&request atIndex:2];
+                void (^completion)(NSError *) = ^(NSError *error) {};
+                [inv setArgument:&completion atIndex:3];
+                [inv invoke];
+            }
+        }
+    } @catch (NSException *e) {}
+}
 
 static id ST_GlobalVal(NSString *key) {
     CFPropertyListRef cf = CFPreferencesCopyAppValue((__bridge CFStringRef)key, kCFPreferencesAnyApplication);
@@ -113,6 +175,113 @@ static void ST_PatchDelegateClass(Class cls) {
     });
     class_replaceMethod(cls, sel, newImp, types);
 }
+
+static NSString *ST_AdBlockJS(void) {
+    static NSString *js = nil; static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableString *s = [NSMutableString string];
+        [s appendString:@"(function(){"];
+        [s appendString:@"if(window.__stAdBlock){return;}"];
+        [s appendString:@"window.__stAdBlock=true;"];
+
+        [s appendString:@"var AD_HOSTS=['doubleclick.net','googlesyndication.com','googleadservices.com','adservice.google.','googletagservices.com','googletagmanager.com','adnxs.com','adsrvr.org','criteo.com','criteo.net','taboola.com','outbrain.com','revcontent.com','mgid.com','zedo.com','pubmatic.com','rubiconproject.com','openx.net','yieldmo.com','sharethrough.com','smartadserver.com','teads.tv','spotxchange.com','spotx.tv','brightroll.com','tremorhub.com','adform.net','casalemedia.com','contextweb.com','gumgum.com','indexexchange.com','loopme.me','media.net','mopub.com','nativeads.com','onetrust.com','popads.net','popcash.net','propellerads.com','propellerpops.com','push-notifications.com','serving-sys.com','sonobi.com','sovrn.com','spotx.com','undertone.com','vungle.com','yieldbot.com','yieldoptimizer.com','zergnet.com','adcolony.com','applovin.com','chartboost.com','inmobi.com','ironsrc.com','supersonicads.com','unityads.unity3d.com','vungle.com'];"];
+
+        [s appendString:@"var AD_SCRIPT_PATTERNS=['/adsbygoogle','/pagead/','/adserver','/adservice','/adsystem','/adframe','/adbox','/adunit','/adloader','/showad','/viewad','/clickad','/trackad','/banner','/popunder','/popup','/interstitial'];"];
+
+        [s appendString:@"var AD_SELECTORS=["];
+        [s appendString:@"'.adsbygoogle',"];
+        [s appendString:@"'[class*=\"adsbygoogle\"]',"];
+        [s appendString:@"'[id*=\"google_ads\"]',"];
+        [s appendString:@"'[id^=\"div-gpt-ad\"]',"];
+        [s appendString:@"'[id*=\"-ad-\"]',"];
+        [s appendString:@"'[id^=\"ad-\"]',"];
+        [s appendString:@"'[id^=\"ad_\"]',"];
+        [s appendString:@"'[id*=\"banner-ad\"]',"];
+        [s appendString:@"'[class*=\"ad-banner\"]',"];
+        [s appendString:@"'[class*=\"ad-banner\"]',"];
+        [s appendString:@"'[class*=\"ad-container\"]',"];
+        [s appendString:@"'[class*=\"ad-wrapper\"]',"];
+        [s appendString:@"'[class*=\"advert\"]',"];
+        [s appendString:@"'[class^=\"ad-\"]',"];
+        [s appendString:@"'[class^=\"ad_\"]',"];
+        [s appendString:@"'[class*=\"sponsored\"]',"];
+        [s appendString:@"'[class*=\"sponsor\"]',"];
+        [s appendString:@"'[class*=\"popunder\"]',"];
+        [s appendString:@"'[class*=\"popup-ad\"]',"];
+        [s appendString:@"'[class*=\"interstitial\"]',"];
+        [s appendString:@"'[id*=\"interstitial\"]',"];
+        [s appendString:@"'[class*=\"taboola\"]',"];
+        [s appendString:@"'[class*=\"outbrain\"]',"];
+        [s appendString:@"'[id*=\"taboola\"]',"];
+        [s appendString:@"'[id*=\"outbrain\"]',"];
+        [s appendString:@"'[class*=\"adslot\"]',"];
+        [s appendString:@"'[class*=\"dfp-\"]',"];
+        [s appendString:@"'iframe[src*=\"doubleclick\"]',"];
+        [s appendString:@"'iframe[src*=\"googlesyndication\"]',"];
+        [s appendString:@"'iframe[src*=\"googleadservices\"]',"];
+        [s appendString:@"'iframe[src*=\"/ads/\"]',"];
+        [s appendString:@"'iframe[src*=\"/ad/\"]',"];
+        [s appendString:@"'iframe[src*=\"adserver\"]',"];
+        [s appendString:@"'iframe[id*=\"google_ads\"]',"];
+        [s appendString:@"'iframe[name*=\"google_ads\"]',"];
+        [s appendString:@"'ins.adsbygoogle'"];
+        [s appendString:@"];"];
+
+        [s appendString:@"var css='.adsbygoogle,[id^=\"div-gpt-ad\"],[class*=\"ad-banner\"],[class*=\"ad-container\"],[class*=\"advert\"],[class*=\"popunder\"],[class*=\"interstitial\"],[class*=\"taboola\"],[class*=\"outbrain\"],ins.adsbygoogle,iframe[src*=\"doubleclick\"],iframe[src*=\"googlesyndication\"]{display:none !important;visibility:hidden !important;height:0 !important;width:0 !important;opacity:0 !important;pointer-events:none !important;}';"];
+        [s appendString:@"function injectCSS(){try{if(document.getElementById('st-adblock-css'))return;var st=document.createElement('style');st.id='st-adblock-css';st.textContent=css;(document.head||document.documentElement).appendChild(st);}catch(e){}}"];
+
+        [s appendString:@"var realOpen=window.open;"];
+        [s appendString:@"window.open=function(url,name,features){"];
+        [s appendString:@"try{var u=String(url||'').toLowerCase();for(var i=0;i<AD_HOSTS.length;i++){if(u.indexOf(AD_HOSTS[i])>=0)return null;}if(u.indexOf('.m3u8')>=0)return null;}catch(e){}"];
+        [s appendString:@"try{return realOpen.call(window,url,name,features);}catch(e){return null;}"];
+        [s appendString:@"};"];
+
+        [s appendString:@"document.addEventListener('click',function(e){"];
+        [s appendString:@"try{"];
+        [s appendString:@"var t=e.target;"];
+        [s appendString:@"while(t&&t!==document.body){"];
+        [s appendString:@"if(t.tagName==='A'&&t.href&&t.target==='_blank'){"];
+        [s appendString:@"var u=String(t.href).toLowerCase();"];
+        [s appendString:@"for(var i=0;i<AD_HOSTS.length;i++){if(u.indexOf(AD_HOSTS[i])>=0){e.preventDefault();e.stopPropagation();return false;}}"];
+        [s appendString:@"}"];
+        [s appendString:@"t=t.parentElement;"];
+        [s appendString:@"}"];
+        [s appendString:@"}catch(err){}"];
+        [s appendString:@"},true);"];
+
+        [s appendString:@"function nukeAds(){"];
+        [s appendString:@"try{"];
+        [s appendString:@"var nodes=document.querySelectorAll(AD_SELECTORS.join(','));"];
+        [s appendString:@"for(var i=0;i<nodes.length;i++){"];
+        [s appendString:@"var n=nodes[i];"];
+        [s appendString:@"try{n.style.setProperty('display','none','important');n.style.setProperty('visibility','hidden','important');n.style.setProperty('height','0','important');n.style.setProperty('pointer-events','none','important');n.setAttribute('data-st-blocked','1');}catch(e){}"];
+        [s appendString:@"}"];
+        [s appendString:@"var scripts=document.querySelectorAll('script[src]');"];
+        [s appendString:@"for(var j=0;j<scripts.length;j++){"];
+        [s appendString:@"var sc=scripts[j];"];
+        [s appendString:@"var src=(sc.src||'').toLowerCase();"];
+        [s appendString:@"for(var k=0;k<AD_HOSTS.length;k++){if(src.indexOf(AD_HOSTS[k])>=0){sc.setAttribute('data-st-blocked','1');sc.type='javascript/blocked';sc.remove();break;}}"];
+        [s appendString:@"for(var m=0;m<AD_SCRIPT_PATTERNS.length;m++){if(src.indexOf(AD_SCRIPT_PATTERNS[m])>=0){sc.setAttribute('data-st-blocked','1');sc.type='javascript/blocked';sc.remove();break;}}"];
+        [s appendString:@"}"];
+        [s appendString:@"}catch(e){}"];
+        [s appendString:@"}"];
+
+        [s appendString:@"injectCSS();"];
+        [s appendString:@"nukeAds();"];
+
+        [s appendString:@"var tmr=null;"];
+        [s appendString:@"function schedule(){if(tmr)return;tmr=setTimeout(function(){tmr=null;injectCSS();nukeAds();},250);}"];
+        [s appendString:@"try{new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true});}catch(e){}"];
+        [s appendString:@"document.addEventListener('DOMContentLoaded',function(){injectCSS();nukeAds();});"];
+        [s appendString:@"window.addEventListener('load',function(){injectCSS();nukeAds();});"];
+        [s appendString:@"setInterval(nukeAds,1500);"];
+
+        [s appendString:@"})();"];
+        js = [s copy];
+    });
+    return js;
+}
+
 static NSString *ST_ForceCopyJS(void) {
     static NSString *js = nil; static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -344,11 +513,7 @@ static NSString *ST_VideoDetectorJS(void) {
     dispatch_once(&once, ^{ inst = [[STDownloadManager alloc] init]; });
     return inst;
 }
-- (instancetype)init {
-    self = [super init];
-    if (self) [self recreateSession];
-    return self;
-}
+- (instancetype)init { self = [super init]; if (self) [self recreateSession]; return self; }
 - (void)recreateSession {
     if (self.session) { [self.session invalidateAndCancel]; self.session = nil; }
     NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration defaultSessionConfiguration];
@@ -395,6 +560,7 @@ static NSString *ST_VideoDetectorJS(void) {
     if (!copied) {
         [[STFloatingProgress shared] hide];
         ST_ShowResultAlert(@"Save Failed", copyErr.localizedDescription ?: @"Copy failed");
+        ST_SendNotification(@"Download Failed", copyErr.localizedDescription ?: @"Copy failed");
         return;
     }
     NSURL *fileURL = [NSURL fileURLWithPath:tmpPath];
@@ -408,6 +574,7 @@ static NSString *ST_VideoDetectorJS(void) {
             [[NSFileManager defaultManager] removeItemAtPath:tmpPath error:nil];
             [[STFloatingProgress shared] hide];
             ST_ShowResultAlert(@"Saved to Photos", [NSString stringWithFormat:@"Video saved: %@", strongSelf.filename]);
+            ST_SendNotification(@"Saved to Photos", strongSelf.filename);
             return;
         }
         [strongSelf saveToDocuments:tmpPath];
@@ -423,8 +590,13 @@ static NSString *ST_VideoDetectorJS(void) {
     NSError *moveErr = nil;
     [fm moveItemAtPath:path toPath:dst error:&moveErr];
     [[STFloatingProgress shared] hide];
-    if (moveErr) ST_ShowResultAlert(@"Save Failed", moveErr.localizedDescription);
-    else ST_ShowResultAlert(@"Saved to Files", [NSString stringWithFormat:@"Saved as %@", self.filename]);
+    if (moveErr) {
+        ST_ShowResultAlert(@"Save Failed", moveErr.localizedDescription);
+        ST_SendNotification(@"Save Failed", moveErr.localizedDescription);
+    } else {
+        ST_ShowResultAlert(@"Saved to Files", [NSString stringWithFormat:@"Saved as %@", self.filename]);
+        ST_SendNotification(@"Saved to Files", self.filename);
+    }
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
     if (!error) return;
@@ -433,6 +605,7 @@ static NSString *ST_VideoDetectorJS(void) {
     self.finished = YES;
     [[STFloatingProgress shared] hide];
     ST_ShowResultAlert(@"Download Failed", error.localizedDescription ?: @"Unknown");
+    ST_SendNotification(@"Download Failed", error.localizedDescription ?: @"Unknown");
 }
 - (void)cancel {
     if (self.cancelled) return;
@@ -472,6 +645,12 @@ static void ST_InstallScripts(WKWebView *wv) {
         if (!ucc) return;
         if (objc_getAssociatedObject(ucc, &kSTInstalledKey)) return;
         objc_setAssociatedObject(ucc, &kSTInstalledKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        if (ST_Pref(@"SafariTool_AdBlock", YES)) {
+            WKUserScript *adScript = [[WKUserScript alloc] initWithSource:ST_AdBlockJS() injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO];
+            [ucc addUserScript:adScript];
+        }
+
         if (ST_Pref(@"SafariTool_ForceCopy", YES)) {
             WKUserScript *script = [[WKUserScript alloc] initWithSource:ST_ForceCopyJS() injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO];
             [ucc addUserScript:script];
